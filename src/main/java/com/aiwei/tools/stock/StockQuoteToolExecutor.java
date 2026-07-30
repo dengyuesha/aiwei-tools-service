@@ -132,7 +132,7 @@ public class StockQuoteToolExecutor implements ToolExecutor {
         String summary = name + "（" + symbol + "）"
                 + (delayed ? "最近交易日收盘价 " : "最新价 ")
                 + price
-                + (change.isBlank() ? "" : "，涨跌 " + change)
+                + (change.isBlank() ? "" : "，较前收盘" + change)
                 + "。";
         if (truthy(arguments.get("advice"))) {
             summary += "这些只是行情信息，不构成投资建议。";
@@ -148,21 +148,22 @@ public class StockQuoteToolExecutor implements ToolExecutor {
         if (pct.isBlank() && amt.isBlank()) {
             return "";
         }
+        double directionValue = !pct.isBlank() ? number(pct) : number(amt);
         StringBuilder value = new StringBuilder();
+        value.append(directionValue < 0 ? "跌 " : directionValue > 0 ? "涨 " : "持平 ");
         if (!pct.isBlank()) {
-            if (!pct.startsWith("-") && !pct.startsWith("+")) {
-                value.append("+");
-            }
-            value.append(pct).append("%");
+            value.append(unsigned(pct)).append("%");
         }
         if (!amt.isBlank()) {
             value.append("（");
-            if (!amt.startsWith("-") && !amt.startsWith("+")) {
-                value.append("+");
-            }
-            value.append(amt).append("）");
+            value.append(directionValue < 0 ? "下跌 " : directionValue > 0 ? "上涨 " : "变动 ");
+            value.append(unsigned(amt)).append("）");
         }
         return value.toString();
+    }
+
+    private String unsigned(String value) {
+        return value.startsWith("-") || value.startsWith("+") ? value.substring(1) : value;
     }
 
     private double number(Object value) {

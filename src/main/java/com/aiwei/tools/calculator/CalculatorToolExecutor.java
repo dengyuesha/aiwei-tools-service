@@ -60,6 +60,8 @@ public class CalculatorToolExecutor implements ToolExecutor {
     private String normalizeExpression(String expression) {
         String normalized = expression == null ? "" : expression.trim();
         normalized = normalized
+                // AINAS 会在用户文本末尾附加模型思考控制标记，模型偶尔会把它一并复制到工具参数。
+                .replaceAll("(?i)/?nothink", "")
                 .replace("×", "*")
                 .replace("÷", "/")
                 .replace("％", "%")
@@ -76,12 +78,21 @@ public class CalculatorToolExecutor implements ToolExecutor {
                 .replaceAll("快点|赶快|赶紧|立刻|马上|谢谢|拜托", "")
                 .replaceAll("[啊呀呢吗嘛吧啦哟哦哇嗯哈欸诶]+", "")
                 .replaceAll("[？?。！!，,、～~\\s]+", "");
-        Matcher full = FULL_EXPRESSION.matcher(normalized);
-        if (full.find()) {
-            return full.group();
-        }
+        // 先保留包含括号的完整安全片段；若先匹配无括号子式，(12+8)*3 会被错误截成 12+8。
         Matcher safe = SAFE_EXPRESSION.matcher(normalized);
-        return safe.find() ? safe.group() : "";
+        String candidate = "";
+        while (safe.find()) {
+            String current = safe.group();
+            boolean hasBinaryOperator = current.matches(".*[+*/%()].*")
+                    || current.length() > 1 && current.substring(1).contains("-");
+            if (hasBinaryOperator && current.length() > candidate.length()) {
+                candidate = current;
+            }
+        }
+        if (!candidate.isBlank()) {
+            return candidate;
+        }
+        Matcher full = FULL_EXPRESSION.matcher(normalized);
+        return full.find() ? full.group() : "";
     }
 }
-

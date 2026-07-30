@@ -87,7 +87,7 @@ class StockToolExecutorTest {
                 Map.of("symbol", "贵州茅台")));
 
         assertThat(result.provider()).isEqualTo("juhe_stock");
-        assertThat(result.summary()).contains("贵州茅台", "1450.20", "+0.71%");
+        assertThat(result.summary()).contains("贵州茅台", "1450.20", "涨 0.71%（上涨 10.20）");
         assertThat(result.data()).containsEntry("symbol", "sh600519");
         assertThat(result.data()).containsEntry("delayed", false);
     }
@@ -101,6 +101,7 @@ class StockToolExecutorTest {
         ToolExecutionResult result = executor.execute(request(Map.of("symbol", "hk01810")));
 
         assertThat(result.provider()).isEqualTo("tencent_quote");
+        assertThat(result.summary()).contains("跌 2.38%（下跌 0.760）");
         assertThat(result.data())
                 .containsEntry("symbol", "hk01810")
                 .containsEntry("price", "31.120")
