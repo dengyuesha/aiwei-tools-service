@@ -1,0 +1,65 @@
+server:
+  port: ${AIWEI_TOOLS_PORT:8095}
+
+spring:
+  application:
+    name: aiwei-tools-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+aiwei:
+  tools:
+    api-key: ${AIWEI_TOOLS_API_KEY:}
+    default-timeout-ms: ${AIWEI_TOOLS_DEFAULT_TIMEOUT_MS:8000}
+    rail:
+      api-key: ${JUHE_TRAIN_KEY:}
+      endpoint: ${JUHE_TRAIN_URL:https://apis.juhe.cn/fapigw/train/query}
+      timeout-ms: ${JUHE_TRAIN_TIMEOUT_MS:10000}
+      max-days-ahead: ${JUHE_TRAIN_MAX_DAYS_AHEAD:15}
+    flight:
+      provider: ${FLIGHT_PROVIDER:auto}
+      variflight-api-key: ${VARIFLIGHT_API_KEY:}
+      variflight-url: ${VARIFLIGHT_API_URL:https://mcp.variflight.com/api/v1/mcp/data}
+      alitrip-app-key: ${ALITRIP_APP_KEY:}
+      alitrip-app-secret: ${ALITRIP_APP_SECRET:}
+      alitrip-gateway: ${ALITRIP_GATEWAY_URL:https://eco.taobao.com/router/rest}
+      alitrip-sign-method: ${ALITRIP_SIGN_METHOD:md5}
+      juhe-api-key: ${JUHE_FLIGHT_KEY:}
+      juhe-url: ${JUHE_FLIGHT_URL:}
+      timeout-ms: ${FLIGHT_TIMEOUT_MS:10000}
+    stock:
+      juhe-api-key: ${JUHE_STOCK_KEY:}
+      juhe-hs-url: ${JUHE_STOCK_HS_URL:https://web.juhe.cn/finance/stock/hs}
+      juhe-hk-url: ${JUHE_STOCK_HK_URL:https://web.juhe.cn/finance/stock/hk}
+      juhe-us-url: ${JUHE_STOCK_US_URL:https://web.juhe.cn/finance/stock/usa}
+      tencent-quote-url: ${TENCENT_STOCK_QUOTE_URL:https://qt.gtimg.cn/q=}
+      east-money-kline-url: ${EASTMONEY_KLINE_URL:https://push2his.eastmoney.com/api/qt/stock/kline/get}
+      timeout-ms: ${STOCK_TIMEOUT_MS:4000}
+      max-bars: ${STOCK_MAX_BARS:300}
+    map:
+      api-key: ${AMAP_WEB_SERVICE_KEY:${AMAP_KEY:}}
+      base-url: ${AMAP_API_BASE_URL:https://restapi.amap.com}
+      timeout-ms: ${AMAP_TIMEOUT_MS:10000}
+    web:
+      baidu-api-key: ${BAIDU_AI_SEARCH_API_KEY:${BAIDU_QIANFAN_API_KEY:}}
+      baidu-endpoint: ${BAIDU_AI_SEARCH_ENDPOINT:https://qianfan.baidubce.com/v2/ai_search/chat/completions}
+      baidu-source: ${BAIDU_AI_SEARCH_SOURCE:baidu_search_v2}
+      duckduckgo-endpoint: ${DUCKDUCKGO_ENDPOINT:https://api.duckduckgo.com/}
+      timeout-ms: ${WEB_TOOL_TIMEOUT_MS:10000}
+      fetch-max-chars: ${FETCH_URL_MAX_CHARS:20000}
+    state:
+      data-directory: ${AIWEI_TOOLS_STATE_DIR:./data/tool-state}
+    hifive:
+      gateway: ${HIFIVE_GATEWAY:https://gateway-open.haifanwu.com}
+      app-id: ${HIFIVE_APP_ID:}
+      server-code: ${HIFIVE_SERVER_CODE:}
+      version: ${HIFIVE_VERSION:V4.2.0}
+      timeout-ms: ${HIFIVE_TIMEOUT_MS:8000}
