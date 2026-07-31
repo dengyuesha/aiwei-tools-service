@@ -1,5 +1,5 @@
 /*
- * 2026-07-31 Codex 修改：补充 12306 降级数据的车站和余票字段解析测试。
+ * 2026-07-31 Codex 修改：补充 12306 降级数据的车站、时刻别名、余票和票价解析测试。
  */
 package com.aiwei.tools.rail;
 
@@ -79,14 +79,16 @@ class RailSearchToolExecutorTest {
 
     @Test
     void normalizesOfficialTicketRow() {
-        String[] fields = new String[34];
+        String[] fields = new String[36];
         java.util.Arrays.fill(fields, "");
+        fields[2] = "6i000G45760A";
         fields[3] = "G4576";
         fields[8] = "02:16";
         fields[9] = "02:45";
         fields[10] = "00:29";
         fields[30] = "3";
         fields[31] = "有";
+        fields[35] = "9MO";
 
         Map<String, Object> train = RailSearchToolExecutor.normalizeOfficialTrain(
                 String.join("|", fields), "深圳北", "广州南");
@@ -94,11 +96,19 @@ class RailSearchToolExecutorTest {
         assertThat(train).containsEntry("train_no", "G4576")
                 .containsEntry("depart", "02:16")
                 .containsEntry("arrive", "02:45")
+                .containsEntry("departure_time", "02:16")
+                .containsEntry("arrival_time", "02:45")
                 .containsEntry("duration", "00:29")
                 .containsEntry("train_type", "高铁");
         assertThat(train.get("seats")).asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
                 .containsEntry("二等座", "3张")
                 .containsEntry("一等座", "有票");
+
+        RailSearchToolExecutor.applyOfficialPrices(train, new ObjectMapper().createObjectNode()
+                .put("M", "¥99.5").put("O", "¥74.5"));
+        assertThat(train.get("seats")).asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("二等座", "3张 ¥74.5")
+                .containsEntry("一等座", "有票 ¥99.5");
     }
 
     @AfterEach

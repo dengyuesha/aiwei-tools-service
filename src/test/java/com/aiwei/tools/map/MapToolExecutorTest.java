@@ -19,6 +19,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/*
+ * 2026-07-31 Codex 修改：验证路线地址与折线字段可供设备生成式 UI 使用。
+ */
 /**
  * 地图、定位和出发规划执行器契约测试。
  */
@@ -37,7 +40,7 @@ class MapToolExecutorTest {
                 {"status":"1","route":{"paths":[{
                   "distance":"12000",
                   "cost":{"duration":"1800"},
-                  "steps":[{"instruction":"沿深南大道向西行驶","tmcs":[
+                  "steps":[{"instruction":"沿深南大道向西行驶","polyline":"114.0579,22.5431;114.0450,22.5600","tmcs":[
                     {"distance":"8000","status":"畅通"},
                     {"distance":"4000","status":"拥堵"}
                   ]}]
@@ -94,6 +97,10 @@ class MapToolExecutorTest {
         assertThat(result.provider()).isEqualTo("amap");
         assertThat(result.summary()).contains("12.0公里", "30分钟");
         assertThat(result.data()).containsEntry("duration_minutes", 30L);
+        assertThat(result.data()).containsEntry("from_address", "深圳市民中心")
+                .containsEntry("to_address", "深圳北站");
+        assertThat(result.data().get("route_polyline")).asList()
+                .containsExactly("114.0579,22.5431", "114.0450,22.5600");
         assertThat(((Map<?, ?>) result.data().get("traffic")).get("congested_ratio"))
                 .isEqualTo(33);
     }
@@ -117,6 +124,19 @@ class MapToolExecutorTest {
                 .containsEntry("rating", "4.8")
                 .containsEntry("cost", "42");
         assertThat(traffic.summary()).contains("缓行", "部分路段缓行");
+    }
+
+    @Test
+    void nearbyReplacesCallerCoordinatesWithReadableAddress() {
+        ToolContext context = new ToolContext(
+                "深圳", "南山区", 22.5431, 114.0579,
+                "gcj02", "zh-CN", "Asia/Shanghai");
+
+        ToolExecutionResult nearby = new MapNearbyToolExecutor(client).execute(request(
+                Map.of("keyword", "美食"), context));
+
+        assertThat(nearby.data()).containsEntry("location", "广东省深圳市南山区科技园");
+        assertThat(nearby.summary()).startsWith("广东省深圳市南山区科技园附近");
     }
 
     @Test

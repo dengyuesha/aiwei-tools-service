@@ -1,4 +1,5 @@
 /*
+ * 2026-07-31 Codex 修改：12306 降级结果补齐统一时间别名、席位余票和官方票价。
  * 2026-07-31 Codex 修改：聚合铁路接口限额或故障时降级到 12306 公开余票查询，避免整张生成式 UI 失败。
  */
 package com.aiwei.tools.rail;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -37,6 +39,8 @@ public class RailSearchToolExecutor implements ToolExecutor {
             "https://kyfw.12306.cn/otn/resources/js/framework/station_name.js";
     private static final String OFFICIAL_QUERY_URL =
             "https://kyfw.12306.cn/otn/leftTicket/query";
+    private static final String OFFICIAL_PRICE_URL =
+            "https://kyfw.12306.cn/otn/leftTicket/queryTicketPrice";
     private static final Pattern OFFICIAL_STATION_PATTERN = Pattern.compile(
             "@[^|]*\\|([^|]+)\\|([A-Z]+)\\|");
 
@@ -201,6 +205,7 @@ public class RailSearchToolExecutor implements ToolExecutor {
                     break;
                 }
             }
+            enrichOfficialPrices(trains, date, cookie);
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("from", from);
             data.put("to", to);
@@ -260,6 +265,55 @@ public class RailSearchToolExecutor implements ToolExecutor {
         return objectMapper.readTree(body == null ? "{}" : body);
     }
 
+    /**
+     * 并发查询入选车次的官方席位价格；价格接口失败时保留余票和时刻。
+     *
+     * @param trains 已筛选车次
+     * @param date 出发日期
+     * @param cookie 12306 查询 Cookie
+     */
+    private void enrichOfficialPrices(List<Map<String, Object>> trains, LocalDate date, String cookie) {
+        List<Mono<Void>> requests = trains.stream().map(train -> {
+            URI uri = UriComponentsBuilder.fromUriString(OFFICIAL_PRICE_URL)
+                    .queryParam("train_no", train.getOrDefault("_official_train_no", ""))
+                    .queryParam("from_station_no", train.getOrDefault("_from_station_no", ""))
+                    .queryParam("to_station_no", train.getOrDefault("_to_station_no", ""))
+                    .queryParam("seat_types", train.getOrDefault("_seat_types", ""))
+                    .queryParam("train_date", date)
+                    .build().encode().toUri();
+            return webClient.get()
+                    .uri(uri)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .header("Referer", "https://kyfw.12306.cn/otn/leftTicket/init")
+                    .header("Cookie", cookie)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofMillis(properties.timeoutMs()))
+                    .doOnNext(body -> {
+                        try {
+                            applyOfficialPrices(train, objectMapper.readTree(body).path("data"));
+                        } catch (Exception ignored) {
+                            // 单趟车价格格式异常时只缺价格，余票和时刻仍可展示。
+                        }
+                    })
+                    .onErrorResume(error -> Mono.empty())
+                    .then();
+        }).toList();
+        try {
+            Mono.when(requests)
+                    .block(Duration.ofMillis(Math.max(1000, properties.timeoutMs() + 500L)));
+        } catch (RuntimeException ignored) {
+            // 官方价格接口偶发超时时不能覆盖已经成功返回的余票主查询。
+        } finally {
+            trains.forEach(train -> {
+                train.remove("_official_train_no");
+                train.remove("_from_station_no");
+                train.remove("_to_station_no");
+                train.remove("_seat_types");
+            });
+        }
+    }
+
     static Map<String, String> parseOfficialStationCodes(String script) {
         Map<String, String> stations = new LinkedHashMap<>();
         Matcher matcher = OFFICIAL_STATION_PATTERN.matcher(script == null ? "" : script);
@@ -281,8 +335,14 @@ public class RailSearchToolExecutor implements ToolExecutor {
         train.put("to_station", to);
         train.put("depart", fields[8]);
         train.put("arrive", fields[9]);
+        train.put("departure_time", fields[8]);
+        train.put("arrival_time", fields[9]);
         train.put("duration", fields[10]);
         train.put("train_type", trainTypeLabel(trainNo));
+        train.put("_official_train_no", field(fields, 2));
+        train.put("_from_station_no", field(fields, 16));
+        train.put("_to_station_no", field(fields, 17));
+        train.put("_seat_types", field(fields, 35));
         Map<String, String> seats = new LinkedHashMap<>();
         putSeat(seats, "商务座", field(fields, 32));
         putSeat(seats, "一等座", field(fields, 31));
@@ -293,6 +353,31 @@ public class RailSearchToolExecutor implements ToolExecutor {
         putSeat(seats, "无座", field(fields, 26));
         train.put("seats", seats);
         return train;
+    }
+
+    /**
+     * 把 12306 票价代码合并进已有席位余票文字。
+     *
+     * @param train 标准车次
+     * @param prices 12306 data 节点
+     */
+    static void applyOfficialPrices(Map<String, Object> train, JsonNode prices) {
+        Object rawSeats = train.get("seats");
+        if (!(rawSeats instanceof Map<?, ?> rawMap) || prices == null || !prices.isObject()) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, String> seats = (Map<String, String>) rawMap;
+        Map<String, String> codes = Map.of(
+                "商务座", "A9", "一等座", "M", "二等座", "O",
+                "高级软卧", "A6", "软卧", "A4", "硬卧", "A3",
+                "硬座", "A1", "无座", "WZ");
+        codes.forEach((seatName, code) -> {
+            String price = prices.path(code).asText("").replace("¥", "").trim();
+            if (!price.isBlank() && seats.containsKey(seatName)) {
+                seats.put(seatName, seats.get(seatName) + " ¥" + price);
+            }
+        });
     }
 
     private static void putSeat(Map<String, String> seats, String name, String raw) {

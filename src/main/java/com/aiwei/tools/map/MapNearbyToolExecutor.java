@@ -1,3 +1,6 @@
+/*
+ * 2026-07-31 Codex 修改：周边结果把中心坐标逆解析为地址，避免 UI 和播报泄露原始经纬度。
+ */
 package com.aiwei.tools.map;
 
 import com.aiwei.tools.contract.ToolExecutionResult;
@@ -41,17 +44,31 @@ public class MapNearbyToolExecutor implements ToolExecutor {
         List<Map<String, Object>> items = client.nearby(
                 keyword, location, city, limit,
                 value(args, "coordinate_system", request.context().coordinateSystem()));
+        String displayLocation = displayLocation(
+                location, value(args, "coordinate_system", request.context().coordinateSystem()));
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("keyword", keyword);
-        data.put("location", location);
+        data.put("location", displayLocation);
         data.put("city", city);
         data.put("items", items);
         String names = items.stream().limit(3)
                 .map(item -> String.valueOf(item.get("name")))
                 .reduce((a, b) -> a + "、" + b).orElse("");
         return new ToolExecutionResult("amap",
-                location + "附近找到" + items.size() + "个" + keyword + "地点：" + names + "。",
+                displayLocation + "附近找到" + items.size() + "个" + keyword + "地点：" + names + "。",
                 data, false);
+    }
+
+    private String displayLocation(String location, String coordinateSystem) {
+        if (location == null || !location.matches("-?\\d{1,3}(?:\\.\\d+)?,\\s*-?\\d{1,2}(?:\\.\\d+)?")) {
+            return location;
+        }
+        try {
+            return String.valueOf(client.reverseGeocode(location, coordinateSystem)
+                    .getOrDefault("address", location));
+        } catch (RuntimeException ignored) {
+            return "当前位置";
+        }
     }
 
     private String contextLocation(ToolInvokeRequest request, String city) {

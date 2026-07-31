@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/*
+ * 2026-07-31 Codex 修改：路线结果补充可展示地址和真实路线折线，避免前端暴露原始经纬度。
+ */
 /**
  * 高德地图 Web Service 中立客户端。
  *
@@ -164,7 +167,9 @@ public class AmapClient {
                     .queryParam("origin", origin)
                     .queryParam("destination", destination)
                     .queryParam("strategy", strategy)
-                    .queryParam("show_fields", "cost,tmcs,navi")
+                    // tmcs/navi make inter-city responses exceed WebFlux's default
+                    // 256 KiB buffer. Cost plus polyline contains everything this UI uses.
+                    .queryParam("show_fields", "cost,polyline")
                     .build().encode().toUri();
         }
         JsonNode root = get(uri, "路线规划");
@@ -173,6 +178,8 @@ public class AmapClient {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("from", from);
         result.put("to", to);
+        result.put("from_address", displayAddress(from, origin));
+        result.put("to_address", displayAddress(to, destination));
         result.put("origin", origin);
         result.put("destination", destination);
         result.put("mode", normalizedMode);
@@ -181,6 +188,7 @@ public class AmapClient {
         result.put("duration_seconds", parseLong(seconds));
         result.put("duration_minutes", Math.max(1, (parseLong(seconds) + 59) / 60));
         result.put("steps", steps(path, normalizedMode));
+        result.put("route_polyline", routePolyline(path, normalizedMode));
         result.put("traffic", traffic(path));
         return result;
     }
@@ -523,6 +531,57 @@ public class AmapClient {
             }
         }
         return result;
+    }
+
+    /**
+     * 提取供应商返回的真实路线折线。
+     *
+     * @param path 高德首条路线
+     * @param mode 交通方式
+     * @return 按行驶顺序排列的“经度,纬度”坐标
+     */
+    private List<String> routePolyline(JsonNode path, String mode) {
+        List<String> points = new ArrayList<>();
+        if ("transit".equals(mode)) {
+            for (JsonNode segment : path.path("segments")) {
+                appendPolyline(points, segment.path("walking").path("steps"));
+                for (JsonNode line : segment.path("bus").path("buslines")) {
+                    appendPolyline(points, line.path("polyline").asText(""));
+                }
+            }
+        } else {
+            appendPolyline(points, path.path("steps"));
+        }
+        return points;
+    }
+
+    private void appendPolyline(List<String> points, JsonNode steps) {
+        for (JsonNode step : steps) {
+            appendPolyline(points, step.path("polyline").asText(""));
+        }
+    }
+
+    private void appendPolyline(List<String> points, String polyline) {
+        for (String raw : text(polyline).split(";")) {
+            String point = raw.trim();
+            if (isCoordinate(point) && (points.isEmpty() || !point.equals(points.get(points.size() - 1)))) {
+                points.add(point);
+            }
+        }
+    }
+
+    private String displayAddress(String input, String coordinate) {
+        if (!isCoordinate(text(input))) {
+            return text(input);
+        }
+        try {
+            return String.valueOf(reverseGeocode(coordinate, "gcj02")
+                    .getOrDefault("address", input));
+        } catch (RuntimeException error) {
+            logger.warn("AMap route address lookup failed, coordinate={}, error={}",
+                    coordinate, error.getMessage());
+            return text(input);
+        }
     }
 
     private Map<String, Object> traffic(JsonNode path) {

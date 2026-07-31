@@ -9,6 +9,8 @@ import com.aiwei.tools.flight.FlightSearchToolExecutor;
 import com.aiwei.tools.rail.RailSearchToolExecutor;
 import com.aiwei.tools.map.AmapClient;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -21,6 +23,7 @@ import java.util.Map;
 @Component
 public class TravelCompareToolExecutor implements ToolExecutor {
 
+    private static final Logger log = LoggerFactory.getLogger(TravelCompareToolExecutor.class);
     private final FlightSearchToolExecutor flightExecutor;
     private final RailSearchToolExecutor railExecutor;
     private final AmapClient amapClient;
@@ -98,12 +101,16 @@ public class TravelCompareToolExecutor implements ToolExecutor {
 
     private Map<String, Object> attemptDriving(String from, String to, ToolInvokeRequest request) {
         try {
+            // from/to in this composite tool are normally cities in different regions.
+            // Reusing the device city as a geocoding restriction can incorrectly resolve
+            // both places into the same city (for example Shenzhen -> Guangzhou).
             Map<String, Object> route = new LinkedHashMap<>(amapClient.route(
-                    from, to, request.context().city(), "driving", "",
+                    from, to, "", "driving", "",
                     request.context().coordinateSystem()));
             route.putIfAbsent("duration", formatDuration(route.get("duration_minutes")));
             return route;
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException error) {
+            log.warn("Driving comparison failed for {} -> {}: {}", from, to, error.getMessage());
             return Map.of();
         }
     }
@@ -158,6 +165,19 @@ public class TravelCompareToolExecutor implements ToolExecutor {
         Map<String, Object> selected = Map.of();
         for (Map<String, Object> item : items) {
             Object seats = item.get("seats");
+            if (seats instanceof Map<?, ?> seatMap) {
+                for (Map.Entry<?, ?> entry : seatMap.entrySet()) {
+                    BigDecimal price = decimal(entry.getValue());
+                    if (price != null && (best == null || price.compareTo(best) < 0)) {
+                        best = price;
+                        selected = Map.of(
+                                "name", item.getOrDefault("train_no", "--"),
+                                "seat", String.valueOf(entry.getKey()),
+                                "price", price);
+                    }
+                }
+                continue;
+            }
             if (!(seats instanceof List<?> seatList)) {
                 continue;
             }

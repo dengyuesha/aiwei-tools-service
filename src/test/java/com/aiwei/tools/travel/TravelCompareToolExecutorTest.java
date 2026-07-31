@@ -52,6 +52,29 @@ class TravelCompareToolExecutorTest {
                 .isEqualTo("4小时30分钟");
     }
 
+    @Test
+    void readsCheapestRailPriceFromOfficialSeatMap() {
+        FlightSearchToolExecutor flight = mock(FlightSearchToolExecutor.class);
+        RailSearchToolExecutor rail = mock(RailSearchToolExecutor.class);
+        AmapClient amap = mock(AmapClient.class);
+        when(flight.execute(any())).thenThrow(new IllegalStateException("no short-haul flight"));
+        when(rail.execute(any())).thenReturn(new ToolExecutionResult(
+                "official_12306", "rail result",
+                Map.of("trains", List.of(Map.of(
+                        "train_no", "G4576",
+                        "seats", Map.of("二等座", "有票 ¥74.5", "一等座", "有票 ¥99.5")))), false));
+        when(amap.route(any(), any(), any(), any(), any(), any())).thenReturn(Map.of(
+                "distance", "135公里", "duration_minutes", 120));
+
+        ToolExecutionResult result = new TravelCompareToolExecutor(flight, rail, amap)
+                .execute(request(Map.of("from", "深圳", "to", "广州", "date", "tomorrow")));
+
+        Map<?, ?> cheapestRail = (Map<?, ?>) result.data().get("cheapest_rail");
+        assertThat(cheapestRail.get("name")).isEqualTo("G4576");
+        assertThat(cheapestRail.get("seat")).isEqualTo("二等座");
+        assertThat(cheapestRail.get("price")).isEqualTo(new java.math.BigDecimal("74.5"));
+    }
+
     private ToolInvokeRequest request(Map<String, Object> arguments) {
         return new ToolInvokeRequest("req-compare", "default", "user", "session",
                 arguments, ToolContext.empty(), null);
