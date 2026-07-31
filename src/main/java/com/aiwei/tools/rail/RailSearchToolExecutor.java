@@ -531,7 +531,6 @@ public class RailSearchToolExecutor implements ToolExecutor {
                 .append(ticketKind(filter).replace("票", ""))
                 .append("。");
         int spoken = Math.min(3, trains.size());
-        BigDecimal cheapest = null;
         for (int index = 0; index < spoken; index++) {
             Map<String, Object> train = trains.get(index);
             summary.append(index + 1)
@@ -542,17 +541,67 @@ public class RailSearchToolExecutor implements ToolExecutor {
                     .append("出发，")
                     .append(train.getOrDefault("arrive", "--"))
                     .append("到达。");
-            BigDecimal price = RailTicketNormalizer.cheapestPrice(train);
-            if (price != null && (cheapest == null || price.compareTo(cheapest) < 0)) {
-                cheapest = price;
-            }
         }
-        if (cheapest != null) {
+        List<CheapestRailOffer> cheapestOffers = cheapestOffers(trains);
+        if (!cheapestOffers.isEmpty()) {
+            CheapestRailOffer first = cheapestOffers.get(0);
             summary.append("目前看到的最低票价约")
-                    .append(cheapest.stripTrailingZeros().toPlainString())
-                    .append("元。");
+                    .append(first.price().stripTrailingZeros().toPlainString())
+                    .append("元，对应")
+                    .append(cheapestOffers.stream().limit(3)
+                            .map(CheapestRailOffer::trainNo)
+                            .distinct()
+                            .reduce((left, right) -> left + "、" + right)
+                            .orElse(first.trainNo()))
+                    .append("的")
+                    .append(first.seatName());
+            if (cheapestOffers.stream().map(CheapestRailOffer::trainNo).distinct().count() > 3) {
+                summary.append("等车次");
+            }
+            summary.append("。");
         }
         return summary.toString();
+    }
+
+    private List<CheapestRailOffer> cheapestOffers(List<Map<String, Object>> trains) {
+        List<CheapestRailOffer> offers = new ArrayList<>();
+        BigDecimal globalCheapest = null;
+        for (Map<String, Object> train : trains) {
+            Object seatsObject = train.get("seats");
+            if (!(seatsObject instanceof Map<?, ?> seats)) {
+                continue;
+            }
+            for (Map.Entry<?, ?> entry : seats.entrySet()) {
+                String value = String.valueOf(entry.getValue());
+                if (value.contains("无票")) {
+                    continue;
+                }
+                int marker = value.indexOf('¥');
+                if (marker < 0 || marker == value.length() - 1) {
+                    continue;
+                }
+                try {
+                    BigDecimal price = new BigDecimal(value.substring(marker + 1).trim());
+                    CheapestRailOffer offer = new CheapestRailOffer(
+                            String.valueOf(train.getOrDefault("train_no", "--")),
+                            String.valueOf(entry.getKey()),
+                            price);
+                    if (globalCheapest == null || price.compareTo(globalCheapest) < 0) {
+                        globalCheapest = price;
+                        offers.clear();
+                        offers.add(offer);
+                    } else if (price.compareTo(globalCheapest) == 0) {
+                        offers.add(offer);
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Ignore upstream placeholders such as "--".
+                }
+            }
+        }
+        return offers;
+    }
+
+    private record CheapestRailOffer(String trainNo, String seatName, BigDecimal price) {
     }
 
     private String ticketKind(String filter) {

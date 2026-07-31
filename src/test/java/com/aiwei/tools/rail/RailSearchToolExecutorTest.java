@@ -135,7 +135,7 @@ class RailSearchToolExecutorTest {
         ToolExecutionResult result = executor.execute(request);
 
         assertThat(result.provider()).isEqualTo("juhe_train_query");
-        assertThat(result.summary()).contains("G25", "最低票价约627元");
+        assertThat(result.summary()).contains("G25", "最低票价约627元，对应G25的二等座");
         assertThat(result.data()).containsEntry("from", "北京").containsEntry("to", "上海");
         assertThat(result.data().get("trains")).asList().hasSize(1);
         assertThat(rawQuery.get()).contains("departure_station=%E5%8C%97%E4%BA%AC");

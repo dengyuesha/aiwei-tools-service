@@ -80,28 +80,13 @@ public class TimeToolExecutor implements ToolExecutor {
     private String formatClock(ZonedDateTime now) {
         int hour = now.getHour();
         int minute = now.getMinute();
-        String period;
-        int displayHour;
-        if (hour < 6) {
-            period = "凌晨";
-            displayHour = hour == 0 ? 12 : hour;
-        } else if (hour < 12) {
-            period = "上午";
-            displayHour = hour;
-        } else if (hour == 12) {
-            period = "中午";
-            displayHour = 12;
-        } else if (hour < 18) {
-            period = "下午";
-            displayHour = hour - 12;
-        } else {
-            period = "晚上";
-            displayHour = hour - 12;
-        }
+        String timezoneName = "Asia/Shanghai".equals(now.getZone().getId())
+                ? "北京时间"
+                : now.getZone().getId() + "时间";
         if (minute == 0) {
-            return String.format("现在是%s%d点整。", period, displayHour);
+            return String.format("现在%s是%d时整。", timezoneName, hour);
         }
-        return String.format("现在是%s%d点%d分。", period, displayHour, minute);
+        return String.format("现在%s是%d时%d分。", timezoneName, hour, minute);
     }
 
     private String weekdayCn(DayOfWeek day) {
@@ -125,4 +110,3 @@ public class TimeToolExecutor implements ToolExecutor {
         return "";
     }
 }
-
