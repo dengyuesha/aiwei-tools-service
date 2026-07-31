@@ -1,3 +1,6 @@
+/*
+ * 2026-07-31 Codex 修改：补充 12306 降级数据的车站和余票字段解析测试。
+ */
 package com.aiwei.tools.rail;
 
 import com.aiwei.tools.contract.ToolContext;
@@ -64,6 +67,38 @@ class RailSearchToolExecutorTest {
         });
         server.start();
         endpoint = "http://127.0.0.1:" + server.getAddress().getPort() + "/train";
+    }
+
+    @Test
+    void parsesOfficialStationList() {
+        Map<String, String> stations = RailSearchToolExecutor.parseOfficialStationCodes(
+                "var station_names ='@szb|深圳北|IOQ|shenzhenbei|szb|0@gzn|广州南|IZQ|guangzhounan|gzn|1';");
+
+        assertThat(stations).containsEntry("深圳北", "IOQ").containsEntry("广州南", "IZQ");
+    }
+
+    @Test
+    void normalizesOfficialTicketRow() {
+        String[] fields = new String[34];
+        java.util.Arrays.fill(fields, "");
+        fields[3] = "G4576";
+        fields[8] = "02:16";
+        fields[9] = "02:45";
+        fields[10] = "00:29";
+        fields[30] = "3";
+        fields[31] = "有";
+
+        Map<String, Object> train = RailSearchToolExecutor.normalizeOfficialTrain(
+                String.join("|", fields), "深圳北", "广州南");
+
+        assertThat(train).containsEntry("train_no", "G4576")
+                .containsEntry("depart", "02:16")
+                .containsEntry("arrive", "02:45")
+                .containsEntry("duration", "00:29")
+                .containsEntry("train_type", "高铁");
+        assertThat(train.get("seats")).asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("二等座", "3张")
+                .containsEntry("一等座", "有票");
     }
 
     @AfterEach

@@ -42,7 +42,7 @@ public class DeparturePlanToolExecutor implements ToolExecutor {
     public ToolExecutionResult execute(ToolInvokeRequest request) {
         Map<String, Object> args = request.arguments();
         String destination = value(args, "destination", value(args, "to", ""));
-        long arrivalEpoch = longValue(args.get("arrival_time"));
+        long arrivalEpoch = normalizeEpochSeconds(longValue(args.get("arrival_time")));
         if (destination.isBlank() || arrivalEpoch <= 0) {
             throw new ToolExecutionException("INVALID_ARGUMENT",
                     "destination and arrival_time are required", false,
@@ -165,5 +165,9 @@ public class DeparturePlanToolExecutor implements ToolExecutor {
         } catch (Exception ignored) {
             return 0;
         }
+    }
+
+    private long normalizeEpochSeconds(long value) {
+        return value > 10_000_000_000L ? value / 1000L : value;
     }
 }

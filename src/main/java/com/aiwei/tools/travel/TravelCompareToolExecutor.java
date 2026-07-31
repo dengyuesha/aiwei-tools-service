@@ -1,3 +1,4 @@
+/* 2026-07-31 Codex 修改：出行比较加入真实驾车路线，支持高铁、开车、飞机三种方式。 */
 package com.aiwei.tools.travel;
 
 import com.aiwei.tools.contract.ToolExecutionResult;
@@ -6,6 +7,7 @@ import com.aiwei.tools.execution.ToolExecutionException;
 import com.aiwei.tools.execution.ToolExecutor;
 import com.aiwei.tools.flight.FlightSearchToolExecutor;
 import com.aiwei.tools.rail.RailSearchToolExecutor;
+import com.aiwei.tools.map.AmapClient;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -21,6 +23,7 @@ public class TravelCompareToolExecutor implements ToolExecutor {
 
     private final FlightSearchToolExecutor flightExecutor;
     private final RailSearchToolExecutor railExecutor;
+    private final AmapClient amapClient;
 
     /**
      * 创建出行对比执行器。
@@ -30,9 +33,11 @@ public class TravelCompareToolExecutor implements ToolExecutor {
      */
     public TravelCompareToolExecutor(
             FlightSearchToolExecutor flightExecutor,
-            RailSearchToolExecutor railExecutor) {
+            RailSearchToolExecutor railExecutor,
+            AmapClient amapClient) {
         this.flightExecutor = flightExecutor;
         this.railExecutor = railExecutor;
+        this.amapClient = amapClient;
     }
 
     @Override
@@ -62,7 +67,8 @@ public class TravelCompareToolExecutor implements ToolExecutor {
 
         ToolExecutionResult flight = attempt(flightExecutor, withArguments(request, flightArgs));
         ToolExecutionResult rail = attempt(railExecutor, withArguments(request, railArgs));
-        if (flight == null && rail == null) {
+        Map<String, Object> driving = attemptDriving(from, to, request);
+        if (flight == null && rail == null && driving.isEmpty()) {
             throw new ToolExecutionException("UPSTREAM_FAILED",
                     "Both flight and rail providers failed", true,
                     "航班和火车票暂时都查不到，请稍后再试。");
@@ -80,10 +86,40 @@ public class TravelCompareToolExecutor implements ToolExecutor {
             data.put("rail", resultMap(rail));
             data.put("cheapest_rail", cheapestRail(list(rail.data().get("trains"))));
         }
+        if (!driving.isEmpty()) {
+            data.put("driving", driving);
+        }
         String summary = from + "到" + to + "的出行对比已完成。"
                 + (flight == null ? "航班暂时不可用。" : flight.summary())
-                + (rail == null ? "火车票暂时不可用。" : rail.summary());
+                + (rail == null ? "火车票暂时不可用。" : rail.summary())
+                + (driving.isEmpty() ? "驾车路线暂时不可用。" : "驾车预计" + driving.get("duration") + "，全程" + driving.get("distance") + "。");
         return new ToolExecutionResult("travel_compare", summary, data, false);
+    }
+
+    private Map<String, Object> attemptDriving(String from, String to, ToolInvokeRequest request) {
+        try {
+            Map<String, Object> route = new LinkedHashMap<>(amapClient.route(
+                    from, to, request.context().city(), "driving", "",
+                    request.context().coordinateSystem()));
+            route.putIfAbsent("duration", formatDuration(route.get("duration_minutes")));
+            return route;
+        } catch (RuntimeException ignored) {
+            return Map.of();
+        }
+    }
+
+    private String formatDuration(Object rawMinutes) {
+        try {
+            long minutes = Long.parseLong(String.valueOf(rawMinutes));
+            if (minutes < 60) {
+                return minutes + "分钟";
+            }
+            long hours = minutes / 60;
+            long remainder = minutes % 60;
+            return remainder == 0 ? hours + "小时" : hours + "小时" + remainder + "分钟";
+        } catch (Exception ignored) {
+            return "--";
+        }
     }
 
     private ToolExecutionResult attempt(ToolExecutor executor, ToolInvokeRequest request) {

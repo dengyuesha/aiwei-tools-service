@@ -20,6 +20,7 @@ public record StockProperties(
         String juheHkUrl,
         String juheUsUrl,
         String tencentQuoteUrl,
+        String tencentKlineUrl,
         String eastMoneyKlineUrl,
         long timeoutMs,
         int maxBars) {
@@ -33,6 +34,9 @@ public record StockProperties(
         juheHkUrl = text(juheHkUrl, "https://web.juhe.cn/finance/stock/hk");
         juheUsUrl = text(juheUsUrl, "https://web.juhe.cn/finance/stock/usa");
         tencentQuoteUrl = text(tencentQuoteUrl, "https://qt.gtimg.cn/q=");
+        tencentKlineUrl = text(
+                tencentKlineUrl,
+                "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get");
         eastMoneyKlineUrl = text(
                 eastMoneyKlineUrl,
                 "https://push2his.eastmoney.com/api/qt/stock/kline/get");

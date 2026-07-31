@@ -31,7 +31,7 @@ class MapToolExecutorTest {
     void startServer() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v3/geocode/geo", exchange -> respond(exchange, """
-                {"status":"1","geocodes":[{"location":"114.0579,22.5431"}]}
+                {"status":"1","geocodes":[{"location":"114.0579,22.5431","adcode":"440300"}]}
                 """));
         server.createContext("/v5/direction/driving", exchange -> respond(exchange, """
                 {"status":"1","route":{"paths":[{
@@ -53,7 +53,9 @@ class MapToolExecutorTest {
                 """));
         server.createContext("/v5/place/around", exchange -> respond(exchange, """
                 {"status":"1","pois":[
-                  {"id":"p1","name":"测试咖啡店","address":"科技园1号","location":"114.1,22.5","distance":"320","type":"餐饮"},
+                  {"id":"p1","name":"测试咖啡店","address":"科技园1号","location":"114.1,22.5","distance":"320","type":"餐饮",
+                   "business":{"rating":"4.8","cost":"42","tag":"手冲咖啡","opentime_today":"08:00-22:00"},
+                   "photos":[{"title":"门店实景","url":"https://img.example.com/coffee.jpg"}]},
                   {"id":"p2","name":"第二咖啡店","address":"科技园2号","location":"114.2,22.5","distance":"650","type":"餐饮"}
                 ]}
                 """));
@@ -107,6 +109,13 @@ class MapToolExecutorTest {
 
         assertThat(nearby.summary()).contains("测试咖啡店");
         assertThat((java.util.List<?>) nearby.data().get("items")).hasSize(2);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstPlace = (Map<String, Object>)
+                ((java.util.List<?>) nearby.data().get("items")).get(0);
+        assertThat(firstPlace)
+                .containsEntry("image_url", "https://img.example.com/coffee.jpg")
+                .containsEntry("rating", "4.8")
+                .containsEntry("cost", "42");
         assertThat(traffic.summary()).contains("缓行", "部分路段缓行");
     }
 

@@ -139,7 +139,34 @@ public class WebSearchClient {
         item.put("source", node.path("source").asText(node.path("website").asText("百度 AI 搜索")));
         item.put("digest", node.path("content").asText(node.path("summary").asText("")));
         item.put("published_at", node.path("date").asText(""));
+        putIfNotBlank(item, "imageUrl", referenceImageUrl(node));
+        putIfNotBlank(item, "videoUrl", node.path("video").path("url").asText(""));
         return item;
+    }
+
+    private String referenceImageUrl(JsonNode node) {
+        String direct = node.path("imageUrl").asText(node.path("image_url").asText(""));
+        if (!direct.isBlank()) {
+            return direct;
+        }
+        String videoCover = node.path("video").path("hover_pic").asText("");
+        if (!videoCover.isBlank()) {
+            return videoCover;
+        }
+        String image = node.path("image").path("url").asText("");
+        if (!image.isBlank()) {
+            return image;
+        }
+        JsonNode images = node.path("web_extensions").path("images");
+        return images.isArray() && !images.isEmpty()
+                ? images.path(0).path("url").asText("")
+                : "";
+    }
+
+    private void putIfNotBlank(Map<String, Object> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(key, value);
+        }
     }
 
     private Map<String, Object> duckReference(JsonNode node) {

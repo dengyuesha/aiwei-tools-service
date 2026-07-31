@@ -1,3 +1,4 @@
+/* 2026-07-31 Codex 修改：验证多日行程保留高德返回的景点图片。 */
 package com.aiwei.tools.assistant;
 
 import com.aiwei.tools.contract.ToolContext;
@@ -5,12 +6,17 @@ import com.aiwei.tools.contract.ToolExecutionResult;
 import com.aiwei.tools.contract.ToolInvokeRequest;
 import com.aiwei.tools.knowledge.KnowledgeSearchToolExecutor;
 import com.aiwei.tools.memory.MemoryDigestToolExecutor;
+import com.aiwei.tools.map.AmapClient;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * 无状态个人助理、知识和记忆摘要执行器测试。
@@ -28,10 +34,14 @@ class AssistantToolExecutorTest {
 
     @Test
     void createsItineraryWithoutInventingLiveRoute() {
-        ToolExecutionResult result = new ItineraryPlanToolExecutor()
-                .execute(request(Map.of("city", "杭州", "date", "tomorrow")));
+        AmapClient amap = mock(AmapClient.class);
+        when(amap.nearby(anyString(), anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(List.of(Map.of("name", "西湖", "address", "西湖区", "image_url", "https://example.com/west-lake.jpg")));
+        ToolExecutionResult result = new ItineraryPlanToolExecutor(amap)
+                .execute(request(Map.of("city", "杭州", "date", "tomorrow", "days", 2)));
 
         assertThat(result.data()).containsEntry("requires_live_route", true);
+        assertThat(result.data()).containsEntry("days_count", 2);
         assertThat(result.summary()).contains("杭州");
     }
 

@@ -3,6 +3,8 @@ package com.aiwei.tools.map;
 import com.aiwei.tools.execution.ToolExecutionException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -27,6 +29,7 @@ import java.util.Map;
 @Component
 public class AmapClient {
 
+    private static final Logger logger = LoggerFactory.getLogger(AmapClient.class);
     private final MapProperties properties;
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -302,6 +305,18 @@ public class AmapClient {
                 item.put("location", poi.path("location").asText(""));
                 item.put("distance_m", parseLong(poi.path("distance").asText("0")));
                 item.put("type", poi.path("type").asText(""));
+                JsonNode business = poi.path("business");
+                putText(item, "rating", business.path("rating"));
+                putText(item, "cost", business.path("cost"));
+                putText(item, "tag", business.path("tag"));
+                putText(item, "telephone", business.path("tel"));
+                putText(item, "open_time", business.path("opentime_today"));
+                List<Map<String, Object>> photos = poiPhotos(poi.path("photos"));
+                if (!photos.isEmpty()) {
+                    item.put("image_url", photos.get(0).get("url"));
+                    item.put("image_title", photos.get(0).get("title"));
+                    item.put("photos", photos);
+                }
                 items.add(item);
                 if (items.size() >= capped) {
                     break;
@@ -309,10 +324,41 @@ public class AmapClient {
             }
         }
         if (items.isEmpty()) {
+            logger.warn("AMap nearby returned no POI, uri={}, nodeType={}, rawCount={}",
+                    safeUri(uri), pois.getNodeType(), pois.size());
             throw new ToolExecutionException("PLACE_NOT_FOUND", "AMap nearby returned no POI",
                     false, "附近没有找到相关地点。");
         }
         return items;
+    }
+
+    private List<Map<String, Object>> poiPhotos(JsonNode node) {
+        List<Map<String, Object>> photos = new ArrayList<>();
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return photos;
+        }
+        Iterable<JsonNode> values = node.isArray() ? node : List.of(node);
+        for (JsonNode photo : values) {
+            String url = photo.path("url").asText("").trim();
+            if (url.isBlank()) {
+                continue;
+            }
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("url", url);
+            value.put("title", photo.path("title").asText(""));
+            photos.add(value);
+            if (photos.size() >= 3) {
+                break;
+            }
+        }
+        return photos;
+    }
+
+    private void putText(Map<String, Object> target, String key, JsonNode value) {
+        String text = nodeText(value).trim();
+        if (!text.isBlank()) {
+            target.put(key, text);
+        }
     }
 
     /**
@@ -376,16 +422,25 @@ public class AmapClient {
      */
     public Map<String, Object> weather(String city) {
         requireKey();
+        // 高德天气接口稳定接受的是行政区编码；直接传中文或英文城市名时可能返回
+        // status=1 但 forecasts 为空，不能把这种空响应误报成成功天气。
+        String adcode = resolveAdcode(city);
         URI uri = uri("/v3/weather/weatherInfo")
                 .queryParam("key", properties.apiKey())
-                .queryParam("city", city)
+                .queryParam("city", adcode)
                 .queryParam("extensions", "all")
                 .build().encode().toUri();
         JsonNode cast = get(uri, "天气查询").path("forecasts").path(0).path("casts").path(0);
+        if (cast.isMissingNode()
+                || cast.path("dayweather").asText("").isBlank()
+                || cast.path("daytemp").asText("").isBlank()
+                || cast.path("nighttemp").asText("").isBlank()) {
+            throw upstream("高德没有返回可用的天气预报。");
+        }
         return Map.of(
-                "condition", cast.path("dayweather").asText("未知"),
-                "day_temperature", cast.path("daytemp").asText(""),
-                "night_temperature", cast.path("nighttemp").asText(""));
+                "condition", cast.path("dayweather").asText(),
+                "day_temperature", cast.path("daytemp").asText(),
+                "night_temperature", cast.path("nighttemp").asText());
     }
 
     private JsonNode get(URI uri, String operation) {
@@ -397,8 +452,11 @@ public class AmapClient {
             boolean success = "1".equals(root.path("status").asText())
                     || root.path("errcode").asInt(-1) == 0;
             if (!success) {
-                throw new IllegalStateException(root.path("info")
-                        .asText(root.path("errmsg").asText("unknown")));
+                String providerMessage = root.path("info")
+                        .asText(root.path("errmsg").asText("unknown"));
+                logger.warn("AMap request rejected, operation={}, uri={}, reason={}",
+                        operation, safeUri(uri), providerMessage);
+                throw new IllegalStateException(providerMessage);
             }
             return root;
         } catch (ToolExecutionException error) {
@@ -598,5 +656,9 @@ public class AmapClient {
     private String safeMessage(Exception error) {
         String message = error.getMessage();
         return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
+    }
+
+    private String safeUri(URI uri) {
+        return uri.toString().replaceAll("([?&]key=)[^&]+", "$1***");
     }
 }

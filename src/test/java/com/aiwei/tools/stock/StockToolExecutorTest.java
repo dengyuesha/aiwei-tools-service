@@ -57,6 +57,12 @@ class StockToolExecutorTest {
                   ]}
                 }
                 """));
+        server.createContext("/tencent-kline", exchange -> respond(exchange, """
+                {"code":0,"data":{"sh600519":{"qfqday":[
+                  ["2026-07-28","1400.00","1420.00","1430.00","1390.00","1000"],
+                  ["2026-07-29","1420.00","1450.20","1460.00","1410.00","1200"]
+                ]}}}
+                """));
         server.createContext("/tencent", exchange -> {
             if (!"q=hk01810".equals(exchange.getRequestURI().getQuery())) {
                 respondText(exchange, "v_unknown=\"\";");
@@ -137,6 +143,24 @@ class StockToolExecutorTest {
     }
 
     @Test
+    void klineFallsBackToTencentWhenEastMoneyIsUnavailable() {
+        StockProperties defaults = properties("");
+        StockProperties properties = new StockProperties(
+                defaults.juheApiKey(), defaults.juheHsUrl(), defaults.juheHkUrl(),
+                defaults.juheUsUrl(), defaults.tencentQuoteUrl(), defaults.tencentKlineUrl(),
+                baseUrl + "/missing-kline", defaults.timeoutMs(), defaults.maxBars());
+        StockKlineToolExecutor executor = new StockKlineToolExecutor(
+                new StockSymbolResolver(), client(properties));
+
+        ToolExecutionResult result = executor.execute(request(
+                Map.of("symbol", "贵州茅台", "period", "30d")));
+
+        assertThat((java.util.List<?>) result.data().get("bars")).hasSize(2);
+        assertThat(result.data().get("closes"))
+                .isEqualTo(java.util.List.of("1420.00", "1450.20"));
+    }
+
+    @Test
     void quoteRejectsClearlyMisroutedUrlRequestBeforeCallingProvider() {
         StockMarketClient client = mock(StockMarketClient.class);
         StockQuoteToolExecutor executor = new StockQuoteToolExecutor(new StockSymbolResolver(), client);
@@ -156,6 +180,7 @@ class StockToolExecutorTest {
                 baseUrl + "/quote",
                 baseUrl + "/quote",
                 baseUrl + "/tencent?q=",
+                baseUrl + "/tencent-kline",
                 baseUrl + "/kline",
                 3000,
                 300);

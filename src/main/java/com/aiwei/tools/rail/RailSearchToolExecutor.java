@@ -1,3 +1,6 @@
+/*
+ * 2026-07-31 Codex 修改：聚合铁路接口限额或故障时降级到 12306 公开余票查询，避免整张生成式 UI 失败。
+ */
 package com.aiwei.tools.rail;
 
 import com.aiwei.tools.contract.ToolExecutionResult;
@@ -21,6 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 使用聚合数据查询真实火车票。
@@ -28,9 +33,17 @@ import java.util.Map;
 @Component
 public class RailSearchToolExecutor implements ToolExecutor {
 
+    private static final String OFFICIAL_STATION_URL =
+            "https://kyfw.12306.cn/otn/resources/js/framework/station_name.js";
+    private static final String OFFICIAL_QUERY_URL =
+            "https://kyfw.12306.cn/otn/leftTicket/query";
+    private static final Pattern OFFICIAL_STATION_PATTERN = Pattern.compile(
+            "@[^|]*\\|([^|]+)\\|([A-Z]+)\\|");
+
     private final RailProperties properties;
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private volatile Map<String, String> officialStationCodes = Map.of();
 
     /**
      * 创建火车票执行器。
@@ -44,7 +57,9 @@ public class RailSearchToolExecutor implements ToolExecutor {
             WebClient.Builder webClientBuilder,
             ObjectMapper objectMapper) {
         this.properties = properties;
-        this.webClient = webClientBuilder.build();
+        this.webClient = webClientBuilder
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
+                .build();
         this.objectMapper = objectMapper;
     }
 
@@ -89,13 +104,19 @@ public class RailSearchToolExecutor implements ToolExecutor {
         String filter = normalizeFilter(firstNonBlank(arguments, "trainFilterFlags", "filter"));
         int limit = resolveLimit(arguments.get("limit"));
         URI uri = buildUri(from, to, date, filter);
-        JsonNode response = fetch(uri);
+        JsonNode response;
+        try {
+            response = fetch(uri);
+        } catch (ToolExecutionException primaryError) {
+            return executeOfficialFallback(from, to, date, filter, limit, primaryError);
+        }
         if (response.path("error_code").asInt(-1) != 0) {
-            throw new ToolExecutionException(
+            ToolExecutionException primaryError = new ToolExecutionException(
                     "UPSTREAM_REJECTED",
                     "Juhe train API rejected request: " + response.path("reason").asText("unknown"),
                     false,
-                    "火车票服务没有接受这次查询，请检查车站和日期。");
+                    "火车票聚合数据源没有接受这次查询。");
+            return executeOfficialFallback(from, to, date, filter, limit, primaryError);
         }
         List<Map<String, Object>> trains = new ArrayList<>();
         JsonNode result = response.path("result");
@@ -119,6 +140,199 @@ public class RailSearchToolExecutor implements ToolExecutor {
                 buildSummary(from, to, trains, filter),
                 data,
                 false);
+    }
+
+    /**
+     * 使用 12306 公开余票查询作为只读降级数据源。
+     *
+     * @param from 出发站
+     * @param to 到达站
+     * @param date 出发日期
+     * @param filter 车次类型过滤
+     * @param limit 最大结果数
+     * @param primaryError 主数据源失败原因
+     * @return 标准铁路查询结果
+     */
+    private ToolExecutionResult executeOfficialFallback(
+            String from,
+            String to,
+            LocalDate date,
+            String filter,
+            int limit,
+            ToolExecutionException primaryError) {
+        try {
+            Map<String, String> stationCodes = officialStationCodes();
+            String fromCode = stationCodes.getOrDefault(from, "");
+            String toCode = stationCodes.getOrDefault(to, "");
+            if (fromCode.isBlank() || toCode.isBlank()) {
+                throw new IllegalArgumentException("12306 station code not found");
+            }
+            URI uri = UriComponentsBuilder.fromUriString(OFFICIAL_QUERY_URL)
+                    .queryParam("leftTicketDTO.train_date", date)
+                    .queryParam("leftTicketDTO.from_station", fromCode)
+                    .queryParam("leftTicketDTO.to_station", toCode)
+                    .queryParam("purpose_codes", "ADULT")
+                    .build().encode().toUri();
+            String cookie = officialCookie(from, fromCode, to, toCode, date);
+            JsonNode root = fetchOfficialQuery(uri, cookie);
+            String redirectedPath = root.path("c_url").asText("");
+            if (!redirectedPath.isBlank()) {
+                URI redirectedUri = UriComponentsBuilder
+                        .fromUriString("https://kyfw.12306.cn/otn/" + redirectedPath)
+                        .queryParam("leftTicketDTO.train_date", date)
+                        .queryParam("leftTicketDTO.from_station", fromCode)
+                        .queryParam("leftTicketDTO.to_station", toCode)
+                        .queryParam("purpose_codes", "ADULT")
+                        .build().encode().toUri();
+                root = fetchOfficialQuery(redirectedUri, cookie);
+            }
+            if (root.path("httpstatus").asInt(0) != 200 || !root.path("data").path("result").isArray()) {
+                throw new IllegalStateException("12306 response does not contain ticket results");
+            }
+            List<Map<String, Object>> trains = new ArrayList<>();
+            for (JsonNode row : root.path("data").path("result")) {
+                Map<String, Object> train = normalizeOfficialTrain(row.asText(""), from, to);
+                String trainNo = String.valueOf(train.getOrDefault("train_no", ""));
+                if (trainNo.isBlank() || !matchesFilter(trainNo, filter)) {
+                    continue;
+                }
+                trains.add(train);
+                if (trains.size() >= limit) {
+                    break;
+                }
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("from", from);
+            data.put("to", to);
+            data.put("date", date.toString());
+            data.put("filter", filter);
+            data.put("ticket_kind", ticketKind(filter));
+            data.put("trains", trains);
+            return new ToolExecutionResult(
+                    "official_12306",
+                    buildSummary(from, to, trains, filter),
+                    data,
+                    false);
+        } catch (Exception fallbackError) {
+            throw new ToolExecutionException(
+                    primaryError.code(),
+                    primaryError.getMessage() + "; 12306 fallback failed: " + safeMessage(fallbackError),
+                    primaryError.retryable(),
+                    "火车票暂时查不到，请稍后再试。");
+        }
+    }
+
+    private Map<String, String> officialStationCodes() {
+        Map<String, String> cached = officialStationCodes;
+        if (!cached.isEmpty()) {
+            return cached;
+        }
+        synchronized (this) {
+            if (!officialStationCodes.isEmpty()) {
+                return officialStationCodes;
+            }
+            String script = webClient.get()
+                    .uri(OFFICIAL_STATION_URL)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofMillis(properties.timeoutMs()))
+                    .block();
+            Map<String, String> parsed = parseOfficialStationCodes(script == null ? "" : script);
+            if (parsed.isEmpty()) {
+                throw new IllegalStateException("12306 station list is empty");
+            }
+            officialStationCodes = parsed;
+            return parsed;
+        }
+    }
+
+    private JsonNode fetchOfficialQuery(URI uri, String cookie) throws Exception {
+        String body = webClient.get()
+                .uri(uri)
+                .header("User-Agent", "Mozilla/5.0")
+                .header("Referer", "https://kyfw.12306.cn/otn/leftTicket/init")
+                .header("Cookie", cookie)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofMillis(properties.timeoutMs()))
+                .block();
+        return objectMapper.readTree(body == null ? "{}" : body);
+    }
+
+    static Map<String, String> parseOfficialStationCodes(String script) {
+        Map<String, String> stations = new LinkedHashMap<>();
+        Matcher matcher = OFFICIAL_STATION_PATTERN.matcher(script == null ? "" : script);
+        while (matcher.find()) {
+            stations.putIfAbsent(matcher.group(1), matcher.group(2));
+        }
+        return Map.copyOf(stations);
+    }
+
+    static Map<String, Object> normalizeOfficialTrain(String row, String from, String to) {
+        String[] fields = (row == null ? "" : row).split("\\|", -1);
+        Map<String, Object> train = new LinkedHashMap<>();
+        if (fields.length < 33) {
+            return train;
+        }
+        String trainNo = fields[3];
+        train.put("train_no", trainNo);
+        train.put("from_station", from);
+        train.put("to_station", to);
+        train.put("depart", fields[8]);
+        train.put("arrive", fields[9]);
+        train.put("duration", fields[10]);
+        train.put("train_type", trainTypeLabel(trainNo));
+        Map<String, String> seats = new LinkedHashMap<>();
+        putSeat(seats, "商务座", field(fields, 32));
+        putSeat(seats, "一等座", field(fields, 31));
+        putSeat(seats, "二等座", field(fields, 30));
+        putSeat(seats, "软卧", field(fields, 23));
+        putSeat(seats, "硬卧", field(fields, 28));
+        putSeat(seats, "硬座", field(fields, 29));
+        putSeat(seats, "无座", field(fields, 26));
+        train.put("seats", seats);
+        return train;
+    }
+
+    private static void putSeat(Map<String, String> seats, String name, String raw) {
+        if (raw == null || raw.isBlank() || "无".equals(raw) || "--".equals(raw)) {
+            return;
+        }
+        String value = "有".equals(raw) ? "有票" : "候补".equals(raw) ? raw : raw + "张";
+        seats.put(name, value);
+    }
+
+    private static String field(String[] fields, int index) {
+        return index >= 0 && index < fields.length ? fields[index] : "";
+    }
+
+    private static String trainTypeLabel(String trainNo) {
+        if (trainNo == null || trainNo.isBlank()) {
+            return "列车";
+        }
+        return switch (Character.toUpperCase(trainNo.charAt(0))) {
+            case 'G' -> "高铁";
+            case 'D' -> "动车";
+            case 'C' -> "城际";
+            case 'Z' -> "直达";
+            case 'T' -> "特快";
+            case 'K' -> "快速";
+            default -> "普通";
+        };
+    }
+
+    private boolean matchesFilter(String trainNo, String filter) {
+        return filter.isBlank()
+                || filter.indexOf(Character.toUpperCase(trainNo.charAt(0))) >= 0;
+    }
+
+    private String officialCookie(String from, String fromCode, String to, String toCode, LocalDate date) {
+        return "_jc_save_fromStation=" + from + "%2C" + fromCode
+                + "; _jc_save_toStation=" + to + "%2C" + toCode
+                + "; _jc_save_fromDate=" + date
+                + "; _jc_save_toDate=" + date
+                + "; _jc_save_wfdc_flag=dc";
     }
 
     private JsonNode fetch(URI uri) {

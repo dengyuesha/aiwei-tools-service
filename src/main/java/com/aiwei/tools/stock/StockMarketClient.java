@@ -188,6 +188,25 @@ public class StockMarketClient {
     public List<Map<String, Object>> fetchDailyBars(
             StockSymbolResolver.StockTarget target,
             int limit) {
+        try {
+            return fetchEastMoneyDailyBars(target, limit);
+        } catch (ToolExecutionException eastMoneyError) {
+            try {
+                return fetchTencentDailyBars(target, limit);
+            } catch (Exception tencentError) {
+                throw new ToolExecutionException(
+                        "UPSTREAM_FAILED",
+                        "Kline providers failed: " + safeMessage(eastMoneyError)
+                                + "; " + safeMessage(tencentError),
+                        true,
+                        "股票走势暂时查不到，请稍后再试。");
+            }
+        }
+    }
+
+    private List<Map<String, Object>> fetchEastMoneyDailyBars(
+            StockSymbolResolver.StockTarget target,
+            int limit) {
         String secId = secId(target);
         int capped = Math.max(10, Math.min(properties.maxBars(), limit));
         String begin = LocalDate.now().minusDays(Math.max(capped * 2L, 90L))
@@ -241,6 +260,43 @@ public class StockMarketClient {
                     true,
                     "股票走势暂时查不到，请稍后再试。");
         }
+    }
+
+    private List<Map<String, Object>> fetchTencentDailyBars(
+            StockSymbolResolver.StockTarget target,
+            int limit) throws Exception {
+        int capped = Math.max(10, Math.min(properties.maxBars(), limit));
+        String gid = target.gid().toLowerCase(Locale.ROOT);
+        URI uri = UriComponentsBuilder.fromUriString(properties.tencentKlineUrl())
+                .queryParam("param", gid + ",day,,," + capped + ",qfq")
+                .build().encode().toUri();
+        JsonNode root = getJson(uri);
+        JsonNode stock = root.path("data").path(gid);
+        JsonNode lines = stock.has("qfqday") ? stock.path("qfqday") : stock.path("day");
+        List<Map<String, Object>> bars = new ArrayList<>();
+        if (lines.isArray()) {
+            for (JsonNode line : lines) {
+                if (!line.isArray() || line.size() < 5) {
+                    continue;
+                }
+                Map<String, Object> bar = new LinkedHashMap<>();
+                bar.put("date", line.path(0).asText());
+                bar.put("open", line.path(1).asText());
+                bar.put("close", line.path(2).asText());
+                bar.put("high", line.path(3).asText());
+                bar.put("low", line.path(4).asText());
+                if (line.size() > 5) {
+                    bar.put("volume", line.path(5).asText());
+                }
+                bars.add(bar);
+            }
+        }
+        if (bars.isEmpty()) {
+            throw new IllegalStateException("Tencent kline response contains no bars");
+        }
+        return bars.size() > limit
+                ? new ArrayList<>(bars.subList(bars.size() - limit, bars.size()))
+                : bars;
     }
 
     private JsonNode getJson(URI uri) throws Exception {
