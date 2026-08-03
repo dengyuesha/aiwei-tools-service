@@ -15,6 +15,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -197,6 +198,18 @@ public class StockMarketClient {
         try {
             return fetchEastMoneyDailyBars(target, limit);
         } catch (ToolExecutionException eastMoneyError) {
+            if ("us".equals(target.market())) {
+                try {
+                    return fetchNasdaqDailyBars(target, limit);
+                } catch (Exception nasdaqError) {
+                    throw new ToolExecutionException(
+                            "UPSTREAM_FAILED",
+                            "Kline providers failed: " + safeMessage(eastMoneyError)
+                                    + "; " + safeMessage(nasdaqError),
+                            true,
+                            "股票走势暂时查不到，请稍后再试。");
+                }
+            }
             try {
                 return fetchTencentDailyBars(target, limit);
             } catch (Exception tencentError) {
@@ -208,6 +221,69 @@ public class StockMarketClient {
                         "股票走势暂时查不到，请稍后再试。");
             }
         }
+    }
+
+    private List<Map<String, Object>> fetchNasdaqDailyBars(
+            StockSymbolResolver.StockTarget target,
+            int limit) throws Exception {
+        int capped = Math.max(10, Math.min(properties.maxBars(), limit));
+        LocalDate today = LocalDate.now();
+        URI uri = UriComponentsBuilder.fromUriString(properties.nasdaqHistoricalUrl())
+                .buildAndExpand(Map.of("symbol", target.gid().toUpperCase(Locale.ROOT)))
+                .toUri();
+        uri = UriComponentsBuilder.fromUri(uri)
+                .queryParam("assetclass", "stocks")
+                .queryParam("fromdate", today.minusDays(Math.max(capped * 2L, 90L)))
+                .queryParam("todate", today)
+                .queryParam("limit", capped)
+                .build().encode().toUri();
+        JsonNode root = getNasdaqJson(uri);
+        JsonNode rows = root.path("data").path("tradesTable").path("rows");
+        List<Map<String, Object>> bars = new ArrayList<>();
+        if (rows.isArray()) {
+            for (JsonNode row : rows) {
+                String date = nasdaqDate(row.path("date").asText(""));
+                String open = marketNumber(row.path("open").asText(""));
+                String close = marketNumber(row.path("close").asText(""));
+                String high = marketNumber(row.path("high").asText(""));
+                String low = marketNumber(row.path("low").asText(""));
+                if (date.isBlank() || open.isBlank() || close.isBlank()
+                        || high.isBlank() || low.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> bar = new LinkedHashMap<>();
+                bar.put("date", date);
+                bar.put("open", open);
+                bar.put("close", close);
+                bar.put("high", high);
+                bar.put("low", low);
+                String volume = marketNumber(row.path("volume").asText(""));
+                if (!volume.isBlank()) {
+                    bar.put("volume", volume);
+                }
+                bars.add(bar);
+            }
+        }
+        if (bars.isEmpty()) {
+            throw new IllegalStateException("Nasdaq historical response contains no bars");
+        }
+        java.util.Collections.reverse(bars);
+        return bars.size() > limit
+                ? new ArrayList<>(bars.subList(bars.size() - limit, bars.size()))
+                : bars;
+    }
+
+    private String nasdaqDate(String value) {
+        try {
+            return LocalDate.parse(value, DateTimeFormatter.ofPattern("MM/dd/yyyy"))
+                    .format(DateTimeFormatter.ISO_LOCAL_DATE);
+        } catch (DateTimeParseException ignored) {
+            return "";
+        }
+    }
+
+    private String marketNumber(String value) {
+        return value == null ? "" : value.replace("$", "").replace(",", "").trim();
     }
 
     private List<Map<String, Object>> fetchEastMoneyDailyBars(
@@ -311,6 +387,20 @@ public class StockMarketClient {
                 .accept(MediaType.APPLICATION_JSON)
                 .header("User-Agent", "Mozilla/5.0")
                 .header("Referer", "https://quote.eastmoney.com/")
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofMillis(properties.timeoutMs()))
+                .block();
+        return objectMapper.readTree(body == null ? "{}" : body);
+    }
+
+    private JsonNode getNasdaqJson(URI uri) throws Exception {
+        String body = webClient.get()
+                .uri(uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Origin", "https://www.nasdaq.com")
+                .header("Referer", "https://www.nasdaq.com/")
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofMillis(properties.timeoutMs()))

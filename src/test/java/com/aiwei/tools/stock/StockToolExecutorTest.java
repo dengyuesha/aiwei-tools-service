@@ -32,6 +32,7 @@ class StockToolExecutorTest {
     private HttpServer server;
     private String baseUrl;
     private final AtomicReference<String> lastKlineQuery = new AtomicReference<>("");
+    private final AtomicReference<String> lastNasdaqQuery = new AtomicReference<>("");
 
     @BeforeEach
     void startServer() throws Exception {
@@ -55,6 +56,10 @@ class StockToolExecutorTest {
                 """));
         server.createContext("/kline", exchange -> {
             lastKlineQuery.set(exchange.getRequestURI().getRawQuery());
+            if (lastKlineQuery.get().matches(".*secid=10[56]\\..*")) {
+                respond(exchange, "{\"rc\":-1,\"data\":null}");
+                return;
+            }
             respond(exchange, """
                 {
                   "rc":0,
@@ -64,6 +69,15 @@ class StockToolExecutorTest {
                   ]}
                 }
                 """);
+        });
+        server.createContext("/nasdaq/", exchange -> {
+            lastNasdaqQuery.set(exchange.getRequestURI().getRawQuery());
+            respond(exchange, """
+                    {"data":{"tradesTable":{"rows":[
+                      {"date":"07/31/2026","close":"$308.91","volume":"132,489,100","open":"$304.81","high":"$310.69","low":"$300.00"},
+                      {"date":"07/30/2026","close":"$333.43","volume":"74,817,790","open":"$333.10","high":"$334.75","low":"$329.59"}
+                    ]}}}
+                    """);
         });
         server.createContext("/tencent-kline", exchange -> respond(exchange, """
                 {"code":0,"data":{"sh600519":{"qfqday":[
@@ -192,9 +206,13 @@ class StockToolExecutorTest {
 
         executor.execute(request(Map.of("symbol", "AAPL", "period", "30d")));
         assertThat(lastKlineQuery.get()).contains("secid=105.AAPL");
+        assertThat(lastNasdaqQuery.get())
+                .contains("assetclass=stocks", "limit=30");
 
         executor.execute(request(Map.of("symbol", "BABA", "period", "30d")));
         assertThat(lastKlineQuery.get()).contains("secid=106.BABA");
+        assertThat(lastNasdaqQuery.get())
+                .contains("assetclass=stocks", "limit=30");
     }
 
     /**
@@ -215,7 +233,8 @@ class StockToolExecutorTest {
         StockProperties properties = new StockProperties(
                 defaults.juheApiKey(), defaults.juheHsUrl(), defaults.juheHkUrl(),
                 defaults.juheUsUrl(), defaults.tencentQuoteUrl(), defaults.tencentKlineUrl(),
-                baseUrl + "/missing-kline", defaults.timeoutMs(), defaults.maxBars());
+                baseUrl + "/missing-kline", defaults.nasdaqHistoricalUrl(),
+                defaults.timeoutMs(), defaults.maxBars());
         StockKlineToolExecutor executor = new StockKlineToolExecutor(
                 new StockSymbolResolver(), client(properties));
 
@@ -249,6 +268,7 @@ class StockToolExecutorTest {
                 baseUrl + "/tencent?q=",
                 baseUrl + "/tencent-kline",
                 baseUrl + "/kline",
+                baseUrl + "/nasdaq/{symbol}/historical",
                 3000,
                 300);
     }

@@ -43,6 +43,7 @@ aiwei:
       tencent-quote-url: ${TENCENT_STOCK_QUOTE_URL:https://qt.gtimg.cn/q=}
       tencent-kline-url: ${TENCENT_STOCK_KLINE_URL:https://web.ifzq.gtimg.cn/appstock/app/fqkline/get}
       east-money-kline-url: ${EASTMONEY_KLINE_URL:https://push2his.eastmoney.com/api/qt/stock/kline/get}
+      nasdaq-historical-url: ${NASDAQ_HISTORICAL_URL:https://api.nasdaq.com/api/quote/{symbol}/historical}
       timeout-ms: ${STOCK_TIMEOUT_MS:4000}
       max-bars: ${STOCK_MAX_BARS:300}
     map:
