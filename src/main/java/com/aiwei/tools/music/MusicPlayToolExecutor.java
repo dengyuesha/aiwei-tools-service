@@ -16,14 +16,17 @@ import java.util.Map;
 public class MusicPlayToolExecutor implements ToolExecutor {
 
     private final HifiveClient client;
+    private final LocalMusicLibrary localMusicLibrary;
 
     /**
      * 创建音乐执行器。
      *
      * @param client HIFIVE 客户端
+     * @param localMusicLibrary 内置本地音乐目录
      */
-    public MusicPlayToolExecutor(HifiveClient client) {
+    public MusicPlayToolExecutor(HifiveClient client, LocalMusicLibrary localMusicLibrary) {
         this.client = client;
+        this.localMusicLibrary = localMusicLibrary;
     }
 
     @Override
@@ -33,11 +36,28 @@ public class MusicPlayToolExecutor implements ToolExecutor {
 
     @Override
     public ToolExecutionResult execute(ToolInvokeRequest request) {
+        String action = String.valueOf(request.arguments().getOrDefault("action", "play")).trim();
+        if ("stop".equalsIgnoreCase(action)) {
+            return new ToolExecutionResult("local", "已停止播放。",
+                    Map.of("type", "music_player", "action", "stop"), false);
+        }
         String query = String.valueOf(request.arguments().getOrDefault("query", "")).trim();
+        int count = number(request.arguments().get("count"));
+        LocalMusicLibrary.LocalSelection local = localMusicLibrary.select(query, count);
+        if (local != null) {
+            String name = String.valueOf(local.track().getOrDefault("name", "音乐"));
+            String summary = local.matched()
+                    ? "正在为您播放《" + name + "》。"
+                    : (query.isBlank() ? "为您随机播放《" + name + "》。"
+                    : "没有找到《" + query + "》，为您随机播放《" + name + "》。");
+            return new ToolExecutionResult("local", summary,
+                    Map.of("type", "music_player", "action", "play", "query", query,
+                            "matched", local.matched(), "track", local.track(),
+                            "queue", local.queue(), "requires_caller_playback", true), false);
+        }
         if (query.isBlank()) {
             query = "轻音乐";
         }
-        int count = number(request.arguments().get("count"));
         String clientId = request.sessionId() == null || request.sessionId().isBlank()
                 ? "aiwei-tools-service" : request.sessionId();
         List<Map<String, Object>> tracks = client.playableTracks(query, count, clientId);

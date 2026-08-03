@@ -4,6 +4,7 @@ import com.aiwei.tools.config.ToolsServiceProperties;
 import com.aiwei.tools.flight.FlightProperties;
 import com.aiwei.tools.map.MapProperties;
 import com.aiwei.tools.music.HifiveProperties;
+import com.aiwei.tools.music.LocalMusicProperties;
 import com.aiwei.tools.rail.RailProperties;
 import com.aiwei.tools.stock.StockProperties;
 import com.aiwei.tools.state.StateProperties;
@@ -22,6 +23,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         FlightProperties.class,
         MapProperties.class,
         HifiveProperties.class,
+        LocalMusicProperties.class,
         StockProperties.class,
         StateProperties.class,
         SearchProperties.class

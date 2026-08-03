@@ -37,5 +37,8 @@ class ApiKeyWebFilterIntegrationTest {
                 .exchange()
                 .expectStatus().isOk();
         client.get().uri("/actuator/health").exchange().expectStatus().isOk();
+        client.get().uri("/music/city-pop.wav").exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType("audio/x-wav");
     }
 }

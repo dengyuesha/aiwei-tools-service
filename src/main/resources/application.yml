@@ -64,3 +64,6 @@ aiwei:
       server-code: ${HIFIVE_SERVER_CODE:}
       version: ${HIFIVE_VERSION:V4.2.0}
       timeout-ms: ${HIFIVE_TIMEOUT_MS:8000}
+    local-music:
+      enabled: ${AIWEI_LOCAL_MUSIC_ENABLED:true}
+      public-base-url: ${AIWEI_LOCAL_MUSIC_PUBLIC_BASE_URL:}

@@ -74,6 +74,24 @@ class ToolApiIntegrationTest {
     }
 
     @Test
+    void invokesBundledMusicByName() {
+        client.post()
+                .uri("/api/v1/tools/music.play/invoke")
+                .bodyValue(Map.of(
+                        "requestId", "req-music-1",
+                        "sessionId", "device-1",
+                        "arguments", Map.of("action", "play", "query", "夏日信号")))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.provider").isEqualTo("local")
+                .jsonPath("$.data.matched").isEqualTo(true)
+                .jsonPath("$.data.track.name").isEqualTo("夏日信号")
+                .jsonPath("$.data.track.audio_url").isEqualTo("/music/summer-pop.wav");
+    }
+
+    @Test
     void returnsDeviceCommandWithoutMutatingCallerSession() {
         client.post()
                 .uri("/api/v1/tools/device.light.set/invoke")
