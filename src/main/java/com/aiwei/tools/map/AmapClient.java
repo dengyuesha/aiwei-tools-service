@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /*
+ * 2026-08-01 Codex 修改：跨城地点在设备城市限定失败时自动执行全国地理编码重试。
  * 2026-07-31 Codex 修改：路线结果补充可展示地址和真实路线折线，避免前端暴露原始经纬度。
  */
 /**
@@ -67,13 +68,23 @@ public class AmapClient {
         if (normalized.isBlank()) {
             throw input("地点不能为空。");
         }
-        URI uri = uri("/v3/geocode/geo")
-                .queryParam("key", properties.apiKey())
-                .queryParam("address", normalized)
-                .queryParamIfPresent("city", optional(city))
-                .build().encode().toUri();
-        JsonNode root = get(uri, "地理编码");
+        JsonNode root;
+        try {
+            root = geocode(normalized, city);
+        } catch (ToolExecutionException error) {
+            // city 通常来自设备当前位置，不能让它限制跨城目的地。
+            if (text(city).isBlank()) {
+                throw error;
+            }
+            logger.info("AMap geocode with city restriction failed; retrying without city, place={}, city={}",
+                    normalized, city);
+            root = geocode(normalized, "");
+        }
         JsonNode geocodes = root.path("geocodes");
+        if ((!geocodes.isArray() || geocodes.isEmpty()) && !text(city).isBlank()) {
+            root = geocode(normalized, "");
+            geocodes = root.path("geocodes");
+        }
         if (!geocodes.isArray() || geocodes.isEmpty()) {
             throw new ToolExecutionException("PLACE_NOT_FOUND", "AMap found no geocode for " + normalized,
                     false, "没有找到地点“" + normalized + "”。");
@@ -83,6 +94,15 @@ public class AmapClient {
             throw upstream("高德没有返回有效地点坐标。");
         }
         return location;
+    }
+
+    private JsonNode geocode(String address, String city) {
+        URI uri = uri("/v3/geocode/geo")
+                .queryParam("key", properties.apiKey())
+                .queryParam("address", address)
+                .queryParamIfPresent("city", optional(city))
+                .build().encode().toUri();
+        return get(uri, "地理编码");
     }
 
     /**
