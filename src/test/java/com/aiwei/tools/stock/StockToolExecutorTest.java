@@ -17,6 +17,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,6 +34,7 @@ class StockToolExecutorTest {
     private String baseUrl;
     private final AtomicReference<String> lastKlineQuery = new AtomicReference<>("");
     private final AtomicReference<String> lastNasdaqQuery = new AtomicReference<>("");
+    private final AtomicInteger nasdaqAaplRequests = new AtomicInteger();
 
     @BeforeEach
     void startServer() throws Exception {
@@ -72,6 +74,11 @@ class StockToolExecutorTest {
         });
         server.createContext("/nasdaq/", exchange -> {
             lastNasdaqQuery.set(exchange.getRequestURI().getRawQuery());
+            if (exchange.getRequestURI().getPath().contains("/AAPL/")
+                    && nasdaqAaplRequests.incrementAndGet() == 1) {
+                respondStatus(exchange, 503, "{\"message\":\"temporary unavailable\"}");
+                return;
+            }
             respond(exchange, """
                     {"data":{"tradesTable":{"rows":[
                       {"date":"07/31/2026","close":"$308.91","volume":"132,489,100","open":"$304.81","high":"$310.69","low":"$300.00"},
@@ -205,6 +212,7 @@ class StockToolExecutorTest {
                 new StockSymbolResolver(), client(properties("")));
 
         executor.execute(request(Map.of("symbol", "AAPL", "period", "30d")));
+        assertThat(nasdaqAaplRequests.get()).isEqualTo(2);
         assertThat(lastNasdaqQuery.get())
                 .contains("assetclass=stocks", "limit=30");
 
@@ -298,6 +306,17 @@ class StockToolExecutorTest {
         byte[] response = body.getBytes(java.nio.charset.Charset.forName("GB18030"));
         exchange.getResponseHeaders().add("Content-Type", "text/plain");
         exchange.sendResponseHeaders(200, response.length);
+        exchange.getResponseBody().write(response);
+        exchange.close();
+    }
+
+    private void respondStatus(
+            com.sun.net.httpserver.HttpExchange exchange,
+            int status,
+            String body) throws java.io.IOException {
+        byte[] response = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, response.length);
         exchange.getResponseBody().write(response);
         exchange.close();
     }

@@ -230,6 +230,24 @@ public class StockMarketClient {
     private List<Map<String, Object>> fetchNasdaqDailyBars(
             StockSymbolResolver.StockTarget target,
             int limit) throws Exception {
+        Exception firstFailure;
+        try {
+            return fetchNasdaqDailyBarsOnce(target, limit);
+        } catch (Exception error) {
+            firstFailure = error;
+        }
+        try {
+            Thread.sleep(250L);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw firstFailure;
+        }
+        return fetchNasdaqDailyBarsOnce(target, limit);
+    }
+
+    private List<Map<String, Object>> fetchNasdaqDailyBarsOnce(
+            StockSymbolResolver.StockTarget target,
+            int limit) throws Exception {
         int capped = Math.max(10, Math.min(properties.maxBars(), limit));
         LocalDate today = LocalDate.now();
         URI uri = UriComponentsBuilder.fromUriString(properties.nasdaqHistoricalUrl())
