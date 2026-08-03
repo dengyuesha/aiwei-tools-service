@@ -49,6 +49,15 @@ class MusicPlayToolExecutorTest {
         assertThat(result.summary()).isEqualTo("已停止播放。");
     }
 
+    @Test
+    void returnsPauseActionWithoutSelectingAnotherTrack() {
+        ToolExecutionResult result = executor.execute(request(Map.of("action", "pause")));
+
+        assertThat(result.data()).containsEntry("action", "pause");
+        assertThat(result.data()).doesNotContainKeys("track", "queue");
+        assertThat(result.summary()).isEqualTo("已暂停播放。");
+    }
+
     private ToolInvokeRequest request(Map<String, Object> arguments) {
         return new ToolInvokeRequest("request", "default", "user", "session",
                 arguments, ToolContext.empty(), null);

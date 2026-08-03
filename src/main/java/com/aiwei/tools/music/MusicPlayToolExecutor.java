@@ -37,6 +37,10 @@ public class MusicPlayToolExecutor implements ToolExecutor {
     @Override
     public ToolExecutionResult execute(ToolInvokeRequest request) {
         String action = String.valueOf(request.arguments().getOrDefault("action", "play")).trim();
+        if ("pause".equalsIgnoreCase(action)) {
+            return new ToolExecutionResult("local", "已暂停播放。",
+                    Map.of("type", "music_player", "action", "pause"), false);
+        }
         if ("stop".equalsIgnoreCase(action)) {
             return new ToolExecutionResult("local", "已停止播放。",
                     Map.of("type", "music_player", "action", "stop"), false);
