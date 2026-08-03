@@ -195,21 +195,25 @@ public class StockMarketClient {
     public List<Map<String, Object>> fetchDailyBars(
             StockSymbolResolver.StockTarget target,
             int limit) {
-        try {
-            return fetchEastMoneyDailyBars(target, limit);
-        } catch (ToolExecutionException eastMoneyError) {
-            if ("us".equals(target.market())) {
+        if ("us".equals(target.market())) {
+            try {
+                return fetchNasdaqDailyBars(target, limit);
+            } catch (Exception nasdaqError) {
                 try {
-                    return fetchNasdaqDailyBars(target, limit);
-                } catch (Exception nasdaqError) {
+                    return fetchEastMoneyDailyBars(target, limit);
+                } catch (Exception eastMoneyError) {
                     throw new ToolExecutionException(
                             "UPSTREAM_FAILED",
-                            "Kline providers failed: " + safeMessage(eastMoneyError)
-                                    + "; " + safeMessage(nasdaqError),
+                            "Kline providers failed: " + safeMessage(nasdaqError)
+                                    + "; " + safeMessage(eastMoneyError),
                             true,
                             "股票走势暂时查不到，请稍后再试。");
                 }
             }
+        }
+        try {
+            return fetchEastMoneyDailyBars(target, limit);
+        } catch (ToolExecutionException eastMoneyError) {
             try {
                 return fetchTencentDailyBars(target, limit);
             } catch (Exception tencentError) {

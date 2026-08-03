@@ -200,17 +200,15 @@ class StockToolExecutorTest {
      * 纳斯达克和纽交所代码必须使用各自的东方财富市场编号。
      */
     @Test
-    void klineUsesCorrectEastMoneyMarketForUnitedStatesTickers() {
+    void klineUsesNasdaqHistoryForUnitedStatesTickers() {
         StockKlineToolExecutor executor = new StockKlineToolExecutor(
                 new StockSymbolResolver(), client(properties("")));
 
         executor.execute(request(Map.of("symbol", "AAPL", "period", "30d")));
-        assertThat(lastKlineQuery.get()).contains("secid=105.AAPL");
         assertThat(lastNasdaqQuery.get())
                 .contains("assetclass=stocks", "limit=30");
 
         executor.execute(request(Map.of("symbol", "BABA", "period", "30d")));
-        assertThat(lastKlineQuery.get()).contains("secid=106.BABA");
         assertThat(lastNasdaqQuery.get())
                 .contains("assetclass=stocks", "limit=30");
     }
