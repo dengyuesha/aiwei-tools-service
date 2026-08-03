@@ -1,5 +1,5 @@
 /*
- * 2026-08-03 Codex 修改：覆盖跨市场股票带噪口语、代码和美股 ticker 解析。
+ * 2026-08-03 Codex 修改：覆盖动态证券搜索、跨市场股价/K线、带噪口语和美股 ticker 解析。
  */
 package com.aiwei.tools.stock;
 
@@ -35,16 +35,22 @@ class StockToolExecutorTest {
     private final AtomicReference<String> lastKlineQuery = new AtomicReference<>("");
     private final AtomicReference<String> lastNasdaqQuery = new AtomicReference<>("");
     private final AtomicInteger nasdaqAaplRequests = new AtomicInteger();
+    private final AtomicReference<String> lastSuggestQuery = new AtomicReference<>("");
+    private final AtomicInteger suggestRequests = new AtomicInteger();
 
     @BeforeEach
     void startServer() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/quote", exchange -> respond(exchange, """
+        server.createContext("/quote", exchange -> {
+            String query = String.valueOf(exchange.getRequestURI().getRawQuery());
+            String gid = query.contains("gid=mu") ? "mu" : "sh600519";
+            String name = "mu".equals(gid) ? "美光科技" : "贵州茅台";
+            respond(exchange, """
                 {
                   "error_code":0,
                   "result":[{"data":{
-                    "gid":"sh600519",
-                    "name":"贵州茅台",
+                    "gid":"%s",
+                    "name":"%s",
                     "nowPri":"1450.20",
                     "todayStartPri":"1438.00",
                     "todayMax":"1460.00",
@@ -55,7 +61,8 @@ class StockToolExecutorTest {
                     "traNumber":"12345"
                   }}]
                 }
-                """));
+                """.formatted(gid, name));
+        });
         server.createContext("/kline", exchange -> {
             lastKlineQuery.set(exchange.getRequestURI().getRawQuery());
             if (lastKlineQuery.get().matches(".*secid=10[56]\\..*")) {
@@ -93,15 +100,31 @@ class StockToolExecutorTest {
                 ]}}}
                 """));
         server.createContext("/tencent", exchange -> {
-            if (!"q=hk01810".equals(exchange.getRequestURI().getQuery())) {
+            String query = exchange.getRequestURI().getQuery();
+            if (!java.util.Set.of("q=hk01810", "q=hk00700").contains(query)) {
                 respondText(exchange, "v_unknown=\"\";");
                 return;
             }
+            String code = query.substring("q=".length());
             respondText(exchange,
-                    "v_hk01810=\"100~XIAOMI-W~01810~31.120~31.880~32.400~"
+                    "v_" + code + "=\"100~TENCENT~" + code.substring(2)
+                            + "~31.120~31.880~32.400~"
                             + "182544102.0~0~0~31.120~0~0~0~0~0~0~0~0~0~31.120~0~0~0~0~0~0~0~0~0~"
                             + "182544102.0~2026/07/30 14:14:06~-0.760~-2.38~32.400~30.800~31.120~"
                             + "182544102.0~5714747254.872~0\";");
+        });
+        server.createContext("/suggest", exchange -> {
+            lastSuggestQuery.set(exchange.getRequestURI().getRawQuery());
+            suggestRequests.incrementAndGet();
+            respondText(exchange, "v_hint=\"sh~600519~贵州茅台~gzmt~GP-A"
+                        + "^hk~00700~腾讯控股~txkg~GP"
+                        + "^us~mu.oq~美光科技~mgkj~GP"
+                        + "^us~aapl.oq~苹果~pg~GP"
+                        + "^us~tsla.oq~特斯拉~tsl~GP"
+                        + "^hk~09988~阿里巴巴-W~albbw~GP"
+                        + "^us~baba.n~阿里巴巴~albb~GP"
+                        + "^sz~300750~宁德时代~ndsd~GP-A"
+                        + "^hk~03750~宁德时代~ndsd~GP\";");
         });
         server.start();
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -116,7 +139,7 @@ class StockToolExecutorTest {
     void quoteUsesJuheRealtimeData() {
         StockProperties properties = properties("stock-key");
         StockMarketClient client = client(properties);
-        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(new StockSymbolResolver(), client);
+        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(resolver(), client);
 
         ToolExecutionResult result = executor.execute(request(
                 Map.of("symbol", "贵州茅台")));
@@ -131,7 +154,7 @@ class StockToolExecutorTest {
     void hongKongQuoteUsesTencentWithoutWaitingForKline() {
         StockProperties properties = properties("");
         StockMarketClient client = client(properties);
-        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(new StockSymbolResolver(), client);
+        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(resolver(), client);
 
         ToolExecutionResult result = executor.execute(request(Map.of("symbol", "hk01810")));
 
@@ -147,7 +170,7 @@ class StockToolExecutorTest {
     @Test
     void quoteFallsBackToLatestMarketBarWithoutJuheKey() {
         StockMarketClient client = client(properties(""));
-        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(new StockSymbolResolver(), client);
+        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(resolver(), client);
 
         ToolExecutionResult result = executor.execute(request(Map.of("symbol", "600519")));
 
@@ -159,7 +182,7 @@ class StockToolExecutorTest {
     @Test
     void klineReturnsOhlcvBars() {
         StockMarketClient client = client(properties(""));
-        StockKlineToolExecutor executor = new StockKlineToolExecutor(new StockSymbolResolver(), client);
+        StockKlineToolExecutor executor = new StockKlineToolExecutor(resolver(), client);
 
         ToolExecutionResult result = executor.execute(request(
                 Map.of("symbol", "茅台", "period", "30d", "interval", "1d")));
@@ -177,10 +200,10 @@ class StockToolExecutorTest {
     @Test
     void klineExtractsHongKongAliasFromNoisyNaturalLanguage() {
         StockMarketClient client = client(properties(""));
-        StockKlineToolExecutor executor = new StockKlineToolExecutor(new StockSymbolResolver(), client);
+        StockKlineToolExecutor executor = new StockKlineToolExecutor(resolver(), client);
 
         ToolExecutionResult result = executor.execute(request(Map.of(
-                "symbol", "查一下阿里巴巴最近30个日工作交易日的K线图",
+                "symbol", "查一下港股阿里巴巴最近30个日工作交易日的K线图",
                 "period", "30d",
                 "interval", "1d")));
 
@@ -194,13 +217,84 @@ class StockToolExecutorTest {
      */
     @Test
     void resolverExtractsCrossMarketCodesAndTickersFromSpeech() {
-        StockSymbolResolver resolver = new StockSymbolResolver();
+        StockSymbolResolver resolver = resolver();
 
         assertThat(resolver.resolve("看看贵州茅台近一年走势").gid()).isEqualTo("sh600519");
         assertThat(resolver.resolve("查港股9988最近30日K线").gid()).isEqualTo("hk09988");
         assertThat(resolver.resolve("AAPL最近三个月的K线").gid()).isEqualTo("aapl");
         assertThat(resolver.resolve("查一下特斯拉最近12周走势").gid()).isEqualTo("tsla");
+        assertThat(lastSuggestQuery.get()).contains("q=%E7%89%B9%E6%96%AF%E6%8B%89");
         assertThat(resolver.resolve("美股BABA最近30个交易日").gid()).isEqualTo("baba");
+    }
+
+    /**
+     * 同一公司和市场的重复请求必须命中本地缓存，避免每次行情都额外搜索证券代码。
+     */
+    @Test
+    void resolverCachesDynamicSymbolResults() {
+        StockSymbolResolver resolver = resolver();
+
+        resolver.resolve("查美股美光科技股价");
+        resolver.resolve("查询美股美光科技最近30个交易日K线");
+
+        assertThat(suggestRequests.get()).isEqualTo(1);
+    }
+
+    /**
+     * 中文公司名称必须通过证券搜索动态解析，不能依赖业务代码里的固定公司名单。
+     */
+    @Test
+    void resolverSearchesChineseNamesAcrossMainlandHongKongAndUnitedStatesMarkets() {
+        StockSymbolResolver resolver = resolver();
+
+        assertThat(resolver.resolve("查A股贵州茅台股价"))
+                .extracting(StockSymbolResolver.StockTarget::market,
+                        StockSymbolResolver.StockTarget::gid,
+                        StockSymbolResolver.StockTarget::displayName)
+                .containsExactly("hs", "sh600519", "贵州茅台");
+        assertThat(resolver.resolve("查港股腾讯控股股价"))
+                .extracting(StockSymbolResolver.StockTarget::market,
+                        StockSymbolResolver.StockTarget::gid,
+                        StockSymbolResolver.StockTarget::displayName)
+                .containsExactly("hk", "hk00700", "腾讯控股");
+        assertThat(resolver.resolve("查美股美光科技股价"))
+                .extracting(StockSymbolResolver.StockTarget::market,
+                        StockSymbolResolver.StockTarget::gid,
+                        StockSymbolResolver.StockTarget::displayName)
+                .containsExactly("us", "mu", "美光科技");
+        assertThat(resolver.resolve("查阿里巴巴最近30个交易日K线").gid())
+                .isEqualTo("hk09988");
+    }
+
+    /**
+     * 三个市场的中文名称都必须完成真实执行器链路，并保留生成式 UI 需要的标准字段。
+     */
+    @Test
+    void quoteAndKlineAcceptDynamicNamesForAllSupportedMarkets() {
+        StockQuoteToolExecutor quote = new StockQuoteToolExecutor(resolver(), client(properties("stock-key")));
+        StockKlineToolExecutor kline = new StockKlineToolExecutor(resolver(), client(properties("")));
+
+        ToolExecutionResult mainlandQuote = quote.execute(request(Map.of("symbol", "A股贵州茅台")));
+        ToolExecutionResult hongKongQuote = quote.execute(request(Map.of("symbol", "港股腾讯控股")));
+        ToolExecutionResult unitedStatesQuote = quote.execute(request(Map.of("symbol", "美股美光科技")));
+        ToolExecutionResult mainlandKline = kline.execute(request(Map.of(
+                "symbol", "A股贵州茅台", "period", "30d", "interval", "1d")));
+        ToolExecutionResult hongKongKline = kline.execute(request(Map.of(
+                "symbol", "港股腾讯控股", "period", "30d", "interval", "1d")));
+        ToolExecutionResult unitedStatesKline = kline.execute(request(Map.of(
+                "symbol", "美股美光科技", "period", "30d", "interval", "1d")));
+
+        assertThat(mainlandQuote.data()).containsEntry("market", "hs").containsEntry("symbol", "sh600519");
+        assertThat(hongKongQuote.data()).containsEntry("market", "hk").containsEntry("symbol", "hk00700");
+        assertThat(unitedStatesQuote.data()).containsEntry("market", "us").containsEntry("symbol", "mu");
+        assertThat(mainlandKline.data()).containsEntry("market", "hs").containsEntry("symbol", "sh600519");
+        assertThat(hongKongKline.data()).containsEntry("market", "hk").containsEntry("symbol", "hk00700");
+        assertThat(unitedStatesKline.data()).containsEntry("market", "us").containsEntry("symbol", "mu");
+        for (ToolExecutionResult result : java.util.List.of(
+                mainlandKline, hongKongKline, unitedStatesKline)) {
+            assertThat((java.util.List<?>) result.data().get("bars")).hasSize(2);
+            assertThat(result.data()).containsKeys("name", "period", "interval", "closes");
+        }
     }
 
     /**
@@ -209,7 +303,7 @@ class StockToolExecutorTest {
     @Test
     void klineUsesNasdaqHistoryForUnitedStatesTickers() {
         StockKlineToolExecutor executor = new StockKlineToolExecutor(
-                new StockSymbolResolver(), client(properties("")));
+                resolver(), client(properties("")));
 
         executor.execute(request(Map.of("symbol", "AAPL", "period", "30d")));
         assertThat(nasdaqAaplRequests.get()).isEqualTo(2);
@@ -226,7 +320,7 @@ class StockToolExecutorTest {
      */
     @Test
     void resolverStillRejectsPeriodWithoutStockIdentity() {
-        StockSymbolResolver resolver = new StockSymbolResolver();
+        StockSymbolResolver resolver = resolver();
 
         assertThatThrownBy(() -> resolver.resolve("最近30个交易日K线"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -242,7 +336,7 @@ class StockToolExecutorTest {
                 baseUrl + "/missing-kline", defaults.nasdaqHistoricalUrl(),
                 defaults.timeoutMs(), defaults.maxBars());
         StockKlineToolExecutor executor = new StockKlineToolExecutor(
-                new StockSymbolResolver(), client(properties));
+                resolver(), client(properties));
 
         ToolExecutionResult result = executor.execute(request(
                 Map.of("symbol", "贵州茅台", "period", "30d")));
@@ -255,7 +349,7 @@ class StockToolExecutorTest {
     @Test
     void quoteRejectsClearlyMisroutedUrlRequestBeforeCallingProvider() {
         StockMarketClient client = mock(StockMarketClient.class);
-        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(new StockSymbolResolver(), client);
+        StockQuoteToolExecutor executor = new StockQuoteToolExecutor(resolver(), client);
 
         assertThatThrownBy(() -> executor.execute(request(Map.of(
                 "symbol", "202306",
@@ -283,6 +377,12 @@ class StockToolExecutorTest {
         return new StockMarketClient(properties, new ObjectMapper(), WebClient.builder());
     }
 
+    private StockSymbolResolver resolver() {
+        StockSecuritySearchClient searchClient = new StockSecuritySearchClient(
+                WebClient.builder(), new ObjectMapper(), baseUrl + "/suggest", 1000);
+        return new StockSymbolResolver(searchClient);
+    }
+
     private ToolInvokeRequest request(Map<String, Object> arguments) {
         return new ToolInvokeRequest(
                 "req-stock",
@@ -304,7 +404,7 @@ class StockToolExecutorTest {
 
     private void respondText(com.sun.net.httpserver.HttpExchange exchange, String body) throws java.io.IOException {
         byte[] response = body.getBytes(java.nio.charset.Charset.forName("GB18030"));
-        exchange.getResponseHeaders().add("Content-Type", "text/plain");
+        exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=GB18030");
         exchange.sendResponseHeaders(200, response.length);
         exchange.getResponseBody().write(response);
         exchange.close();
