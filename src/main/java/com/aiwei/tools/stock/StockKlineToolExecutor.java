@@ -1,3 +1,6 @@
+/*
+ * 2026-08-03 Codex 修改：K线周期支持按月换算为交易日，避免“最近3个月”只返回最少10条。
+ */
 package com.aiwei.tools.stock;
 
 import com.aiwei.tools.contract.ToolExecutionResult;
@@ -100,6 +103,9 @@ public class StockKlineToolExecutor implements ToolExecutor {
         }
         if (period.contains("w") || period.contains("周")) {
             return Math.min(value * 5, 120);
+        }
+        if (period.contains("m") || period.contains("月")) {
+            return Math.min(value * 21, 300);
         }
         return Math.max(10, Math.min(value, 300));
     }

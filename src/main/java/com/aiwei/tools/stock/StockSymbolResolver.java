@@ -1,9 +1,13 @@
+/*
+ * 2026-08-03 Codex 修改：从带周期和动作词的自然口语中提取 A股、港股、美股标的。
+ */
 package com.aiwei.tools.stock;
 
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,6 +33,13 @@ public class StockSymbolResolver {
 
     private static final Pattern HS = Pattern.compile("^(sh|sz)(\\d{6})$", Pattern.CASE_INSENSITIVE);
     private static final Pattern HK = Pattern.compile("^hk(\\d{5})$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern EMBEDDED_HS = Pattern.compile("(?i)(sh|sz)\\d{6}");
+    private static final Pattern EMBEDDED_HK = Pattern.compile("(?i)hk\\d{5}");
+    private static final Pattern EMBEDDED_BARE_CODE = Pattern.compile("(?<!\\d)\\d{6}(?!\\d)");
+    private static final Pattern EMBEDDED_HK_MARKET_CODE = Pattern.compile(
+            "(?i)(?:港股|香港股票|港交所)\\s*0?(\\d{4,5})");
+    private static final Pattern EMBEDDED_US_TICKER = Pattern.compile(
+            "(?i)(?<![a-z])(AAPL|TSLA|MSFT|NVDA|GOOG|GOOGL|AMZN|BABA)(?![a-z])");
 
     /**
      * 解析股票标的。
@@ -76,11 +87,52 @@ public class StockSymbolResolver {
     }
 
     private String normalize(String raw) {
-        return String.valueOf(raw == null ? "" : raw)
+        String source = String.valueOf(raw == null ? "" : raw)
+                .replaceAll("(?i)/nothink", "")
+                .trim();
+        if (source.isBlank()) {
+            return "";
+        }
+
+        /*
+         * 工具参数来自语音模型时可能包含“最近30个交易日”等尾巴。先找最长明确别名，
+         * 避免“阿里”抢先截断“阿里巴巴”，也不会依赖模型严格只传 symbol 字段。
+         */
+        String alias = ALIASES.keySet().stream()
+                .filter(name -> source.toLowerCase(Locale.ROOT).contains(name.toLowerCase(Locale.ROOT)))
+                .max(Comparator.comparingInt(String::length))
+                .orElse("");
+        if (!alias.isBlank()) {
+            return alias.toLowerCase(Locale.ROOT);
+        }
+
+        Matcher hsCode = EMBEDDED_HS.matcher(source);
+        if (hsCode.find()) {
+            return hsCode.group().toLowerCase(Locale.ROOT);
+        }
+        Matcher hkCode = EMBEDDED_HK.matcher(source);
+        if (hkCode.find()) {
+            return hkCode.group().toLowerCase(Locale.ROOT);
+        }
+        Matcher hkMarketCode = EMBEDDED_HK_MARKET_CODE.matcher(source);
+        if (hkMarketCode.find()) {
+            return "hk" + String.format("%05d", Integer.parseInt(hkMarketCode.group(1)));
+        }
+        Matcher bareCode = EMBEDDED_BARE_CODE.matcher(source);
+        if (bareCode.find()) {
+            return bareCode.group();
+        }
+        Matcher usTicker = EMBEDDED_US_TICKER.matcher(source);
+        if (usTicker.find()) {
+            return usTicker.group(1).toLowerCase(Locale.ROOT);
+        }
+
+        return source
                 .replaceAll("^(查|查询|查一下|帮我查|帮我|看看|一下|的)+", "")
-                .replaceAll("(股价|股票|行情|多少钱|价格|市值|K线|kline|走势)$", "")
+                .replaceAll("(?i)(股价|股票|行情|多少钱|价格|市值|K线|kline|走势|走势图|蜡烛图)$", "")
+                .replaceAll("(?i)(最近|近)?[一二两三四五六七八九十百两\\d]+(?:个)?(?:交易日|工作日|日|天|周|星期|个月|月|年|days?|weeks?|months?|years?).*$", "")
                 .replaceAll("^(美国|美股|港股|a股|A股)", "")
-                .replaceAll("\\s+", "")
+                .replaceAll("[，。！？、,.!?;；:：'\"“”‘’\\s-]+", "")
                 .trim()
                 .toLowerCase(Locale.ROOT);
     }

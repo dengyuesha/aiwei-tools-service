@@ -1,3 +1,6 @@
+/*
+ * 2026-08-03 Codex 修改：覆盖跨市场股票带噪口语、代码和美股 ticker 解析。
+ */
 package com.aiwei.tools.stock;
 
 import com.aiwei.tools.contract.ToolContext;
@@ -14,6 +17,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +31,7 @@ class StockToolExecutorTest {
 
     private HttpServer server;
     private String baseUrl;
+    private final AtomicReference<String> lastKlineQuery = new AtomicReference<>("");
 
     @BeforeEach
     void startServer() throws Exception {
@@ -48,7 +53,9 @@ class StockToolExecutorTest {
                   }}]
                 }
                 """));
-        server.createContext("/kline", exchange -> respond(exchange, """
+        server.createContext("/kline", exchange -> {
+            lastKlineQuery.set(exchange.getRequestURI().getRawQuery());
+            respond(exchange, """
                 {
                   "rc":0,
                   "data":{"klines":[
@@ -56,7 +63,8 @@ class StockToolExecutorTest {
                     "2026-07-29,1420.00,1450.20,1460.00,1410.00,1200"
                   ]}
                 }
-                """));
+                """);
+        });
         server.createContext("/tencent-kline", exchange -> respond(exchange, """
                 {"code":0,"data":{"sh600519":{"qfqday":[
                   ["2026-07-28","1400.00","1420.00","1430.00","1390.00","1000"],
@@ -140,6 +148,65 @@ class StockToolExecutorTest {
         assertThat((java.util.List<?>) result.data().get("bars")).hasSize(2);
         assertThat(result.data().get("closes"))
                 .isEqualTo(java.util.List.of("1420.00", "1450.20"));
+    }
+
+    /**
+     * 模型把周期尾巴拼进 symbol 时，仍应提取最长明确股票名称。
+     */
+    @Test
+    void klineExtractsHongKongAliasFromNoisyNaturalLanguage() {
+        StockMarketClient client = client(properties(""));
+        StockKlineToolExecutor executor = new StockKlineToolExecutor(new StockSymbolResolver(), client);
+
+        ToolExecutionResult result = executor.execute(request(Map.of(
+                "symbol", "查一下阿里巴巴最近30个日工作交易日的K线图",
+                "period", "30d",
+                "interval", "1d")));
+
+        assertThat(result.data())
+                .containsEntry("symbol", "hk09988")
+                .containsEntry("market", "hk");
+    }
+
+    /**
+     * A股、港股和美股代码即使夹在口语中也必须保持市场归属。
+     */
+    @Test
+    void resolverExtractsCrossMarketCodesAndTickersFromSpeech() {
+        StockSymbolResolver resolver = new StockSymbolResolver();
+
+        assertThat(resolver.resolve("看看贵州茅台近一年走势").gid()).isEqualTo("sh600519");
+        assertThat(resolver.resolve("查港股9988最近30日K线").gid()).isEqualTo("hk09988");
+        assertThat(resolver.resolve("AAPL最近三个月的K线").gid()).isEqualTo("aapl");
+        assertThat(resolver.resolve("查一下特斯拉最近12周走势").gid()).isEqualTo("tsla");
+        assertThat(resolver.resolve("美股BABA最近30个交易日").gid()).isEqualTo("baba");
+    }
+
+    /**
+     * 纳斯达克和纽交所代码必须使用各自的东方财富市场编号。
+     */
+    @Test
+    void klineUsesCorrectEastMoneyMarketForUnitedStatesTickers() {
+        StockKlineToolExecutor executor = new StockKlineToolExecutor(
+                new StockSymbolResolver(), client(properties("")));
+
+        executor.execute(request(Map.of("symbol", "AAPL", "period", "30d")));
+        assertThat(lastKlineQuery.get()).contains("secid=105.AAPL");
+
+        executor.execute(request(Map.of("symbol", "BABA", "period", "30d")));
+        assertThat(lastKlineQuery.get()).contains("secid=106.BABA");
+    }
+
+    /**
+     * 只有周期没有股票标的时必须继续报参数错误，不能猜测任意股票。
+     */
+    @Test
+    void resolverStillRejectsPeriodWithoutStockIdentity() {
+        StockSymbolResolver resolver = new StockSymbolResolver();
+
+        assertThatThrownBy(() -> resolver.resolve("最近30个交易日K线"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("symbol is required");
     }
 
     @Test

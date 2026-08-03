@@ -1,3 +1,6 @@
+/*
+ * 2026-08-03 Codex 修改：按美股交易所生成东方财富市场编号，兼容纳斯达克与纽交所 K 线。
+ */
 package com.aiwei.tools.stock;
 
 import com.aiwei.tools.execution.ToolExecutionException;
@@ -17,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 聚合实时行情和东方财富 K 线客户端。
@@ -25,6 +29,8 @@ import java.util.Map;
 public class StockMarketClient {
 
     private static final long FAST_QUOTE_TIMEOUT_MS = 2000L;
+    private static final Set<String> NYSE_TICKERS = Set.of("BABA");
+    private static final Set<String> AMEX_TICKERS = Set.of();
 
     private final StockProperties properties;
     private final ObjectMapper objectMapper;
@@ -337,9 +343,20 @@ public class StockMarketClient {
         return switch (target.market()) {
             case "hs" -> gid.startsWith("sh") ? "1." + gid.substring(2) : "0." + gid.substring(2);
             case "hk" -> "116." + gid.substring(2);
-            case "us" -> "105." + gid.toUpperCase(Locale.ROOT);
+            case "us" -> usSecId(gid);
             default -> throw new IllegalArgumentException("unsupported stock market: " + target.market());
         };
+    }
+
+    private String usSecId(String gid) {
+        String ticker = gid.toUpperCase(Locale.ROOT);
+        if (NYSE_TICKERS.contains(ticker)) {
+            return "106." + ticker;
+        }
+        if (AMEX_TICKERS.contains(ticker)) {
+            return "107." + ticker;
+        }
+        return "105." + ticker;
     }
 
     private String currency(String market) {
