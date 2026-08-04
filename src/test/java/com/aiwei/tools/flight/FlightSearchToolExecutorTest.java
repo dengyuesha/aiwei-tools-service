@@ -83,6 +83,9 @@ class FlightSearchToolExecutorTest {
         assertThat(result.provider()).isEqualTo("juhe_flight_query");
         assertThat(result.summary()).contains("CA1883", "08:30", "10:45");
         assertThat(result.data()).containsEntry("from", "北京").containsEntry("to", "上海");
+        assertThat(result.data()).containsEntry(
+                "query_url",
+                "https://m.ctrip.com/html5/flight/swift/index");
         assertThat((java.util.List<?>) result.data().get("flights")).hasSize(1);
         assertThat(query.get()).contains("departure=PEK", "arrival=PVG");
     }

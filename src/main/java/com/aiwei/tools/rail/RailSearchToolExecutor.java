@@ -41,6 +41,7 @@ public class RailSearchToolExecutor implements ToolExecutor {
             "https://kyfw.12306.cn/otn/leftTicket/query";
     private static final String OFFICIAL_PRICE_URL =
             "https://kyfw.12306.cn/otn/leftTicket/queryTicketPrice";
+    private static final String OFFICIAL_BOOKING_URL = "https://www.12306.cn/index/";
     private static final Pattern OFFICIAL_STATION_PATTERN = Pattern.compile(
             "@[^|]*\\|([^|]+)\\|([A-Z]+)\\|");
 
@@ -138,6 +139,7 @@ public class RailSearchToolExecutor implements ToolExecutor {
         data.put("date", date.toString());
         data.put("filter", filter);
         data.put("ticket_kind", ticketKind(filter));
+        data.put("booking_url", OFFICIAL_BOOKING_URL);
         data.put("trains", trains);
         return new ToolExecutionResult(
                 "juhe_train_query",
@@ -212,6 +214,7 @@ public class RailSearchToolExecutor implements ToolExecutor {
             data.put("date", date.toString());
             data.put("filter", filter);
             data.put("ticket_kind", ticketKind(filter));
+            data.put("booking_url", OFFICIAL_BOOKING_URL);
             data.put("trains", trains);
             return new ToolExecutionResult(
                     "official_12306",

@@ -34,6 +34,7 @@ import java.util.Map;
 public class FlightSearchToolExecutor implements ToolExecutor {
 
     private static final DateTimeFormatter TOP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String FLIGHT_QUERY_URL = "https://m.ctrip.com/html5/flight/swift/index";
     private static final Map<String, String> STATUS_LABELS = Map.ofEntries(
             Map.entry("PLAN", "计划"), Map.entry("DELAY", "延误"),
             Map.entry("CANCEL", "取消"), Map.entry("DEPART", "已起飞"),
@@ -114,6 +115,7 @@ public class FlightSearchToolExecutor implements ToolExecutor {
                 data.put("from", result.from());
                 data.put("to", result.to());
                 data.put("date", date.toString());
+                data.put("query_url", FLIGHT_QUERY_URL);
                 data.put("flights", result.items());
                 return new ToolExecutionResult(
                         result.provider(),
@@ -133,6 +135,7 @@ public class FlightSearchToolExecutor implements ToolExecutor {
                 true,
                 "航班暂时查不到，稍后再试；你也可以先查火车票。");
     }
+
 
     private FlightResult queryVariflight(
             String from,
