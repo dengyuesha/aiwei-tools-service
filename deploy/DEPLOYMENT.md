@@ -17,6 +17,8 @@
 - 内存上限 `640m`，JVM 堆上限 `512m`
 - CPU 上限 `0.75`
 - 状态目录挂载到 `aiwei-tools-service/data`
+- 海搜 API Key 仅保存在 `.env.local`；`HAISOU_QUOTA_FILE` 必须位于持久化状态目录
+- `HAISOU_DAILY_FREE_LIMIT` 默认且最高为 `100`，供应商请求不自动重试
 
 ## 调用地址
 

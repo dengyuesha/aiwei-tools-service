@@ -74,6 +74,22 @@ $env:BAIDU_AI_SEARCH_API_KEY='replace-with-baidu-search-key'
 `mcp.fetch.url` 仅允许公网 HTTP/HTTPS 标准端口，拒绝本机、内网、链路本地、多播和保留地址，
 并通过 `FETCH_URL_MAX_CHARS` 限制返回正文长度。
 
+## 海搜影视分享索引
+
+`media.share.search` 和 `media.share.validate` 通过 iDataRiver 的海搜开放 API 返回结构化网盘分享信息。
+工具服务只负责公共索引适配，不保存用户收藏、下载任务或媒体库数据，也不代理网盘文件下载。
+
+```powershell
+$env:HAISOU_API_KEY='idr_***'
+$env:HAISOU_DAILY_FREE_LIMIT='100'
+$env:HAISOU_QUOTA_ZONE='UTC'
+$env:HAISOU_QUOTA_FILE='D:\data\aiwei-tools-state\haisou-quota.json'
+```
+
+调用次数在请求供应商前持久化预占，失败请求也计数；服务重启后继续读取同一计数文件。
+硬上限不会超过公开免费档的每日 100 次，达到上限后不再请求供应商，也不会自动重试付费类请求。
+搜索结果只允许已知网盘的 HTTPS 分享域名，下载必须由设备端用户在隔离浏览器中明确确认。
+
 状态类工具使用 `tenantId + userId` 隔离的 JSONL 存储，目录可配置：
 
 ```powershell

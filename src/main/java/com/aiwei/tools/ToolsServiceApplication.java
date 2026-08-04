@@ -3,6 +3,7 @@ package com.aiwei.tools;
 import com.aiwei.tools.config.ToolsServiceProperties;
 import com.aiwei.tools.flight.FlightProperties;
 import com.aiwei.tools.map.MapProperties;
+import com.aiwei.tools.media.HaisouProperties;
 import com.aiwei.tools.music.HifiveProperties;
 import com.aiwei.tools.music.LocalMusicProperties;
 import com.aiwei.tools.rail.RailProperties;
@@ -26,7 +27,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         LocalMusicProperties.class,
         StockProperties.class,
         StateProperties.class,
-        SearchProperties.class
+        SearchProperties.class,
+        HaisouProperties.class
 })
 public class ToolsServiceApplication {
 

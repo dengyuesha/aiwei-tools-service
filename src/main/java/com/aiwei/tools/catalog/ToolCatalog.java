@@ -47,6 +47,8 @@ public class ToolCatalog {
         add(definitions, "meeting.prepare", "work_assistant", "hybrid", 1200, 10000, true, false, false, ToolStatus.AVAILABLE);
         add(definitions, "memory.digest", "memory", "hybrid", 900, 8000, true, false, true, ToolStatus.AVAILABLE);
         add(definitions, "music.play", "entertainment", "hybrid", 1200, 15000, true, false, true, ToolStatus.AVAILABLE);
+        add(definitions, "media.share.search", "entertainment", "hybrid", 1800, 15000, true, false, false, ToolStatus.AVAILABLE);
+        add(definitions, "media.share.validate", "entertainment", "hybrid", 1800, 15000, true, false, false, ToolStatus.AVAILABLE);
         this.tools = Map.copyOf(definitions);
     }
 

@@ -45,7 +45,7 @@ class ToolApiIntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.length()").isEqualTo(28)
+                .jsonPath("$.length()").isEqualTo(30)
                 .jsonPath("$['mcp.time.now'].status").isEqualTo("AVAILABLE")
                 .jsonPath("$['flight.search'].status").isEqualTo("AVAILABLE");
     }
@@ -122,8 +122,8 @@ class ToolApiIntegrationTest {
     }
 
     @Test
-    void allTwentyEightStaticToolsHaveExecutors() {
-        assertThat(catalog.all()).hasSize(28);
+    void allThirtyStaticToolsHaveExecutors() {
+        assertThat(catalog.all()).hasSize(30);
         assertThat(catalog.all().keySet())
                 .allMatch(name -> executorRegistry.find(name).isPresent());
     }

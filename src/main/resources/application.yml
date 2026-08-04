@@ -59,6 +59,14 @@ aiwei:
       duckduckgo-endpoint: ${DUCKDUCKGO_ENDPOINT:https://api.duckduckgo.com/}
       timeout-ms: ${WEB_TOOL_TIMEOUT_MS:10000}
       fetch-max-chars: ${FETCH_URL_MAX_CHARS:20000}
+    haisou:
+      api-key: ${HAISOU_API_KEY:}
+      search-endpoint: ${HAISOU_SEARCH_ENDPOINT:https://apiok.us/api/b9d1/search}
+      validate-endpoint: ${HAISOU_VALIDATE_ENDPOINT:https://apiok.us/api/b9d1/validate}
+      timeout-ms: ${HAISOU_TIMEOUT_MS:12000}
+      daily-free-limit: ${HAISOU_DAILY_FREE_LIMIT:100}
+      quota-zone: ${HAISOU_QUOTA_ZONE:UTC}
+      quota-file: ${HAISOU_QUOTA_FILE:./data/haisou-quota.json}
     state:
       data-directory: ${AIWEI_TOOLS_STATE_DIR:./data/tool-state}
     hifive:

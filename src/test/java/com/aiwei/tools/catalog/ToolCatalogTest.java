@@ -13,7 +13,7 @@ class ToolCatalogTest {
     void containsAllStaticAiweiosToolsAndMigratedToolsAreAvailable() {
         ToolCatalog catalog = new ToolCatalog();
 
-        assertThat(catalog.all()).hasSize(28);
+        assertThat(catalog.all()).hasSize(30);
         assertThat(catalog.find("flight.search")).isPresent();
         assertThat(catalog.find("music.play")).isPresent();
         assertThat(catalog.find("mcp.time.now").orElseThrow().status()).isEqualTo(ToolStatus.AVAILABLE);
@@ -52,6 +52,8 @@ class ToolCatalogTest {
                         "mcp.memory.write",
                         "mcp.memory.search",
                         "device.light.set",
-                        "music.play");
+                        "music.play",
+                        "media.share.search",
+                        "media.share.validate");
     }
 }
