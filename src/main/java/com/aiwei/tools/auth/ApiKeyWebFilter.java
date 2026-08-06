@@ -42,8 +42,12 @@ public class ApiKeyWebFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
-        if (!path.startsWith("/api/") || properties.apiKey().isBlank()) {
+        if (!path.startsWith("/api/")) {
             return chain.filter(exchange);
+        }
+        if (properties.apiKey().isBlank()) {
+            exchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+            return exchange.getResponse().setComplete();
         }
         String supplied = exchange.getRequest().getHeaders().getFirst(API_KEY_HEADER);
         if (supplied == null || !constantTimeEquals(properties.apiKey(), supplied.trim())) {
@@ -59,4 +63,3 @@ public class ApiKeyWebFilter implements WebFilter {
                 actual.getBytes(StandardCharsets.UTF_8));
     }
 }
-
