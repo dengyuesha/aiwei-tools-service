@@ -74,7 +74,10 @@ class MapToolExecutorTest {
                 }}
                 """));
         server.createContext("/v3/weather/weatherInfo", exchange -> respond(exchange, """
-                {"status":"1","forecasts":[{"casts":[{"dayweather":"雷阵雨","daytemp":"31","nighttemp":"26"}]}]}
+                {"status":"1","forecasts":[{"casts":[
+                  {"date":"2026-08-10","dayweather":"雷阵雨","daytemp":"31","nighttemp":"26"},
+                  {"date":"2026-08-11","dayweather":"晴","daytemp":"33","nighttemp":"27"}
+                ]}]}
                 """));
         server.start();
         String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -181,6 +184,15 @@ class MapToolExecutorTest {
         assertThat(result.provider()).isEqualTo("amap");
         assertThat(result.summary()).contains("雷阵雨", "26到31摄氏度");
         assertThat(result.data()).containsEntry("city", "深圳");
+    }
+
+    @Test
+    void weatherSelectsRequestedForecastDate() {
+        ToolExecutionResult result = new WeatherToolExecutor(client).execute(request(
+                Map.of("city", "深圳", "date", "2026-08-11"), ToolContext.empty()));
+
+        assertThat(result.summary()).contains("2026-08-11", "晴", "27到33摄氏度");
+        assertThat(result.data()).containsEntry("date", "2026-08-11");
     }
 
     private ToolInvokeRequest request(Map<String, Object> arguments, ToolContext context) {
