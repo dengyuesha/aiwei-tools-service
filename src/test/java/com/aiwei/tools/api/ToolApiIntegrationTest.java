@@ -15,7 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 统一工具 API 端到端测试。
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "aiwei.tools.api-key=integration-secret")
 class ToolApiIntegrationTest {
 
     @Autowired
@@ -35,6 +37,7 @@ class ToolApiIntegrationTest {
     ToolApiIntegrationTest(@LocalServerPort int port) {
         this.client = WebTestClient.bindToServer()
                 .baseUrl("http://127.0.0.1:" + port)
+                .defaultHeader("X-Tools-Api-Key", "integration-secret")
                 .build();
     }
 
