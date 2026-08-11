@@ -13,6 +13,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -449,6 +450,17 @@ public class AmapClient {
      * @return 天气条件与温度
      */
     public Map<String, Object> weather(String city) {
+        return weather(city, "");
+    }
+
+    /**
+     * 查询指定日期的高德天气预报；日期为空时使用预报数组第一天。
+     *
+     * @param city 城市
+     * @param date ISO 日期 yyyy-MM-dd
+     * @return 对应日期的天气条件与温度
+     */
+    public Map<String, Object> weather(String city, String date) {
         requireKey();
         // 高德天气接口稳定接受的是行政区编码；直接传中文或英文城市名时可能返回
         // status=1 但 forecasts 为空，不能把这种空响应误报成成功天气。
@@ -458,17 +470,43 @@ public class AmapClient {
                 .queryParam("city", adcode)
                 .queryParam("extensions", "all")
                 .build().encode().toUri();
-        JsonNode cast = get(uri, "天气查询").path("forecasts").path(0).path("casts").path(0);
+        JsonNode casts = get(uri, "天气查询").path("forecasts").path(0).path("casts");
+        JsonNode cast = casts.path(0);
+        String targetDate = date == null ? "" : date.trim();
+        if (!targetDate.isBlank()) {
+            try {
+                LocalDate.parse(targetDate);
+            } catch (Exception error) {
+                throw new ToolExecutionException("INVALID_ARGUMENT", "date must be yyyy-MM-dd",
+                        false, "天气日期格式不正确。");
+            }
+            cast = null;
+            if (casts.isArray()) {
+                for (JsonNode candidate : casts) {
+                    if (targetDate.equals(candidate.path("date").asText(""))) {
+                        cast = candidate;
+                        break;
+                    }
+                }
+            }
+            if (cast == null) {
+                throw new ToolExecutionException("FORECAST_DATE_UNAVAILABLE",
+                        "weather forecast unavailable for " + targetDate,
+                        false, "暂时没有" + targetDate + "的天气预报。");
+            }
+        }
         if (cast.isMissingNode()
                 || cast.path("dayweather").asText("").isBlank()
                 || cast.path("daytemp").asText("").isBlank()
                 || cast.path("nighttemp").asText("").isBlank()) {
             throw upstream("高德没有返回可用的天气预报。");
         }
-        return Map.of(
-                "condition", cast.path("dayweather").asText(),
-                "day_temperature", cast.path("daytemp").asText(),
-                "night_temperature", cast.path("nighttemp").asText());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("condition", cast.path("dayweather").asText());
+        result.put("day_temperature", cast.path("daytemp").asText());
+        result.put("night_temperature", cast.path("nighttemp").asText());
+        result.put("date", cast.path("date").asText(targetDate));
+        return result;
     }
 
     private JsonNode get(URI uri, String operation) {
