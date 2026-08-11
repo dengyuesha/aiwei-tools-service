@@ -40,16 +40,13 @@ public class WeatherToolExecutor implements ToolExecutor {
             throw new ToolExecutionException("INVALID_ARGUMENT", "city is required",
                     false, "请告诉我要查询哪个城市的天气。");
         }
-        Object dateArg = request.arguments().get("date");
-        String date = dateArg == null ? "" : String.valueOf(dateArg).trim();
-        Map<String, Object> weather = new LinkedHashMap<>(client.weather(city.trim(), date));
+        Map<String, Object> weather = new LinkedHashMap<>(client.weather(city.trim()));
         weather.put("city", city.trim());
         String condition = String.valueOf(weather.get("condition"));
         String low = String.valueOf(weather.get("night_temperature"));
         String high = String.valueOf(weather.get("day_temperature"));
-        String dateLabel = date.isBlank() ? "" : date + " ";
         return new ToolExecutionResult("amap",
-                city.trim() + dateLabel + "天气：" + condition + "，气温" + low + "到" + high + "摄氏度。",
+                city.trim() + "天气：" + condition + "，气温" + low + "到" + high + "摄氏度。",
                 weather, false);
     }
 }
