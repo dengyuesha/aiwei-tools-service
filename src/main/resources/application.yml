@@ -63,7 +63,7 @@ aiwei:
       api-key: ${HAISOU_API_KEY:}
       search-endpoint: ${HAISOU_SEARCH_ENDPOINT:https://apiok.us/api/b9d1/search}
       validate-endpoint: ${HAISOU_VALIDATE_ENDPOINT:https://apiok.us/api/b9d1/validate}
-      timeout-ms: ${HAISOU_TIMEOUT_MS:12000}
+      timeout-ms: ${HAISOU_TIMEOUT_MS:14500}
       daily-free-limit: ${HAISOU_DAILY_FREE_LIMIT:100}
       quota-zone: ${HAISOU_QUOTA_ZONE:UTC}
       quota-file: ${HAISOU_QUOTA_FILE:./data/haisou-quota.json}

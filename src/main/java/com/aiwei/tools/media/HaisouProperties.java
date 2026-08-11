@@ -34,7 +34,7 @@ public record HaisouProperties(
         apiKey = text(apiKey);
         searchEndpoint = value(searchEndpoint, "https://apiok.us/api/b9d1/search");
         validateEndpoint = value(validateEndpoint, "https://apiok.us/api/b9d1/validate");
-        timeoutMs = timeoutMs <= 0 ? 12000 : Math.min(timeoutMs, 60000);
+        timeoutMs = timeoutMs <= 0 ? 14500 : Math.min(timeoutMs, 60000);
         dailyFreeLimit = dailyFreeLimit <= 0 ? 100 : Math.min(dailyFreeLimit, 100);
         quotaZone = validZone(quotaZone);
         quotaFile = quotaFile == null ? Path.of("./data/haisou-quota.json") : quotaFile;
