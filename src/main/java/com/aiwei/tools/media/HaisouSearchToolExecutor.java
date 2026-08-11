@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 海搜结构化分享搜索工具。仅返回公开索引，不负责下载或保存业务选择。
@@ -15,10 +16,16 @@ import java.util.Map;
 @Component
 public class HaisouSearchToolExecutor implements ToolExecutor {
 
+    private static final long FRESH_TTL_MS = 10 * 60_000L;
+    private static final long STALE_TTL_MS = 60 * 60_000L;
+    private static final int MAX_CACHE_ENTRIES = 200;
+
     private static final List<String> PLATFORMS = List.of(
             "ali", "baidu", "quark", "xunlei", "tianyi", "yidong", "115", "123", "uc");
 
     private final HaisouClient client;
+    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final Map<String, Object> locks = new ConcurrentHashMap<>();
 
     /** @param client 海搜客户端 */
     public HaisouSearchToolExecutor(HaisouClient client) {
@@ -51,8 +58,40 @@ public class HaisouSearchToolExecutor implements ToolExecutor {
         if (maxSize > 0 && minSize > maxSize) {
             throw invalid("minSize cannot exceed maxSize");
         }
-        HaisouClient.SearchResult result = client.search(
-                query, platforms, searchIn, page, pageSize, minSize, maxSize);
+        String cacheKey = String.join("|", query.toLowerCase(), String.join(",", platforms), searchIn,
+                String.valueOf(page), String.valueOf(pageSize), String.valueOf(minSize), String.valueOf(maxSize));
+        long now = System.currentTimeMillis();
+        CacheEntry cached = cache.get(cacheKey);
+        if (cached != null && now - cached.createdAtMs() <= FRESH_TTL_MS) {
+            return response(query, cached.result(), true);
+        }
+        Object lock = locks.computeIfAbsent(cacheKey, ignored -> new Object());
+        try {
+            synchronized (lock) {
+                now = System.currentTimeMillis();
+                cached = cache.get(cacheKey);
+                if (cached != null && now - cached.createdAtMs() <= FRESH_TTL_MS) {
+                    return response(query, cached.result(), true);
+                }
+                try {
+                    HaisouClient.SearchResult result = client.search(
+                            query, platforms, searchIn, page, pageSize, minSize, maxSize);
+                    pruneCache(now);
+                    cache.put(cacheKey, new CacheEntry(result, now));
+                    return response(query, result, false);
+                } catch (RuntimeException error) {
+                    if (cached != null && now - cached.createdAtMs() <= STALE_TTL_MS) {
+                        return response(query, cached.result(), true);
+                    }
+                    throw error;
+                }
+            }
+        } finally {
+            locks.remove(cacheKey, lock);
+        }
+    }
+
+    private ToolExecutionResult response(String query, HaisouClient.SearchResult result, boolean cached) {
         Map<String, Object> data = Map.of(
                 "query", query,
                 "items", result.items(),
@@ -66,7 +105,23 @@ public class HaisouSearchToolExecutor implements ToolExecutor {
                 "haisou_idatariver",
                 result.items().isEmpty() ? "没有找到可用的网盘分享。" : "找到 " + result.items().size() + " 条网盘分享。",
                 data,
-                false);
+                cached);
+    }
+
+    private void pruneCache(long now) {
+        if (cache.size() < MAX_CACHE_ENTRIES) {
+            return;
+        }
+        cache.entrySet().removeIf(entry -> now - entry.getValue().createdAtMs() > STALE_TTL_MS);
+        if (cache.size() >= MAX_CACHE_ENTRIES) {
+            cache.entrySet().stream()
+                    .min(java.util.Comparator.comparingLong(entry -> entry.getValue().createdAtMs()))
+                    .map(Map.Entry::getKey)
+                    .ifPresent(cache::remove);
+        }
+    }
+
+    private record CacheEntry(HaisouClient.SearchResult result, long createdAtMs) {
     }
 
     private List<String> list(Object value) {
