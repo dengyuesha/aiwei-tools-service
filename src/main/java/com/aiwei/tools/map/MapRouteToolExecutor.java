@@ -6,13 +6,18 @@ import com.aiwei.tools.execution.ToolExecutionException;
 import com.aiwei.tools.execution.ToolExecutor;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 驾车、步行、骑行和公共交通路线执行器。
  */
 @Component
 public class MapRouteToolExecutor implements ToolExecutor {
+
+    private static final Pattern COORDINATE = Pattern.compile(
+            "^-?\\d{1,3}(?:\\.\\d+)?\\s*,\\s*-?\\d{1,2}(?:\\.\\d+)?$");
 
     private final AmapClient client;
 
@@ -40,11 +45,15 @@ public class MapRouteToolExecutor implements ToolExecutor {
                     false, "请提供路线起点和终点。");
         }
         String city = value(args, "city", nullSafe(request.context().city()));
-        Map<String, Object> route = client.route(
+        Map<String, Object> route = new LinkedHashMap<>(client.route(
                 from, to, city, value(args, "mode", "driving"),
                 value(args, "preference", ""), value(args, "coordinate_system",
-                        nullSafe(request.context().coordinateSystem())));
-        String summary = "已规划从" + from + "到" + to + "的"
+                        nullSafe(request.context().coordinateSystem()))));
+        String fromLabel = displayPlace(from, "当前位置");
+        String toLabel = displayPlace(value(args, "to_label", to), to);
+        route.put("from_label", fromLabel);
+        route.put("to_label", toLabel);
+        String summary = "已规划从" + fromLabel + "到" + toLabel + "的"
                 + modeLabel(String.valueOf(route.get("mode"))) + "路线，全程"
                 + route.get("distance") + "，预计" + route.get("duration_minutes") + "分钟。";
         return new ToolExecutionResult("amap", summary, route, false);
@@ -64,6 +73,12 @@ public class MapRouteToolExecutor implements ToolExecutor {
 
     private String nullSafe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String displayPlace(String value, String fallback) {
+        String text = nullSafe(value);
+        if (text.isBlank()) return fallback;
+        return COORDINATE.matcher(text).matches() ? fallback : text;
     }
 
     private String modeLabel(String mode) {

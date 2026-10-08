@@ -109,6 +109,22 @@ class MapToolExecutorTest {
     }
 
     @Test
+    void routeKeepsCoordinatesInternalAndUsesReadableCurrentLocation() {
+        ToolContext context = new ToolContext(
+                "深圳", "南山区", 22.5431, 114.0579,
+                "gcj02", "zh-CN", "Asia/Shanghai");
+
+        ToolExecutionResult result = new MapRouteToolExecutor(client).execute(request(
+                Map.of("to", "深圳北站", "city", "深圳"), context));
+
+        assertThat(result.summary()).startsWith("已规划从当前位置到深圳北站");
+        assertThat(result.summary()).doesNotContain("114.0579", "22.5431");
+        assertThat(result.data()).containsEntry("from_label", "当前位置")
+                .containsEntry("to_label", "深圳北站")
+                .containsEntry("from", "114.0579,22.5431");
+    }
+
+    @Test
     void nearbyAndTrafficUseRealAmapResponses() {
         ToolExecutionResult nearby = new MapNearbyToolExecutor(client).execute(request(
                 Map.of("keyword", "咖啡", "location", "深圳科技园", "city", "深圳"),
